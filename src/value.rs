@@ -1,4 +1,4 @@
-use std::{iter::Peekable, slice::Iter};
+use std::slice::Iter;
 
 use crate::error::Error;
 
@@ -174,125 +174,115 @@ impl Value {
     }
 
     /// Decode a CBOR representation to a value
-    pub fn decode(cbor_iter: &mut Peekable<Iter<'_, u8>>) -> Result<Self, Error> {
-        let initial_info = cbor_iter.next().ok_or(Error::Empty)?;
-        let major_type = initial_info >> 5;
-        let additional_information = initial_info & 0b00011111;
-        match major_type {
-            0 => Ok(Self::Unsigned(extract_number(
-                additional_information,
-                cbor_iter,
-            )?)),
-            1 => Ok(Self::Signed(extract_number(
-                additional_information,
-                cbor_iter,
-            )?)),
-            2 => Ok(Self::Byte(decode_byte_or_text(
-                major_type,
-                additional_information,
-                cbor_iter,
-            )?)),
-            3 => Ok(Self::Text(
-                String::from_utf8(decode_byte_or_text(
-                    major_type,
-                    additional_information,
-                    cbor_iter,
-                )?)
+    pub fn decode(val: &[u8]) -> Result<Self, Error> {
+        let mut iter = val.iter();
+        decode_value(&mut iter)
+    }
+}
+
+fn decode_value(iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
+    let initial_info = iter.next().ok_or(Error::Empty)?;
+    let major_type = initial_info >> 5;
+    let additional = initial_info & 0b00011111;
+    match major_type {
+        0 => Ok(Value::Unsigned(extract_number(additional, iter)?)),
+        1 => Ok(Value::Signed(extract_number(additional, iter)?)),
+        2 => Ok(Value::Byte(decode_byte_or_text(
+            major_type, additional, iter,
+        )?)),
+        3 => Ok(Value::Text(
+            String::from_utf8(decode_byte_or_text(major_type, additional, iter)?)
                 .map_err(|_| Error::Invalid("invalid UTF-8 string".to_string()))?,
-            )),
-            4 => {
-                let length = indefinite_extract_number(additional_information, cbor_iter)?;
-                let mut val_vec = vec![];
-                if let Some(num) = length {
-                    for _ in 0..num {
-                        val_vec.push(Self::decode(cbor_iter)?);
-                    }
-                } else {
-                    val_vec.append(&mut collect_indefinite_length_array_value(cbor_iter)?);
-                    match cbor_iter.peek() {
-                        Some(255) => {
-                            cbor_iter.next();
-                        }
-                        None => {
-                            return Err(Error::Invalid("incomplete indefinite array".to_string()));
-                        }
-                        _ => unreachable!("non 255 some value should be handled already"),
-                    }
+        )),
+        4 => {
+            let length = extract_optional_number(additional, iter)?;
+            let mut val_vec = vec![];
+            if let Some(num) = length {
+                for _ in 0..num {
+                    val_vec.push(decode_value(iter)?);
                 }
-                Ok(Self::Array(val_vec))
+            } else {
+                val_vec.append(&mut decode_array(iter)?);
+                match iter.clone().next() {
+                    Some(255) => {
+                        iter.next();
+                    }
+                    None => {
+                        return Err(Error::Invalid("incomplete indefinite array".to_string()));
+                    }
+                    _ => unreachable!("non 255 some value should be handled already"),
+                }
             }
-            5 => {
-                let length = indefinite_extract_number(additional_information, cbor_iter)?;
-                let mut val_vec = vec![];
-                if let Some(num) = length {
-                    for _ in 0..num {
-                        let key = Self::decode(cbor_iter)?;
-                        let val = Self::decode(cbor_iter)?;
-                        val_vec.push((key, val));
-                    }
-                } else {
-                    val_vec.append(&mut collect_indefinite_length_map_value(cbor_iter)?);
-                    match cbor_iter.peek() {
-                        Some(255) => {
-                            cbor_iter.next();
-                        }
-                        None => {
-                            return Err(Error::Invalid("incomplete indefinite map".to_string()));
-                        }
-                        _ => unreachable!("non 255 some value should be handled already"),
-                    }
-                }
-                Ok(Self::Map(val_vec))
-            }
-            6 => {
-                let tag_number = extract_number(additional_information, cbor_iter)?;
-                let tag_value = Self::decode(cbor_iter)?;
-                Ok(Self::Tag(tag_number, Box::new(tag_value)))
-            }
-            7 => match additional_information {
-                0..=19 => Ok(Self::UnknownSimple(additional_information)),
-                20 => Ok(Self::Boolean(false)),
-                21 => Ok(Self::Boolean(true)),
-                22 => Ok(Self::Null),
-                23 => Ok(Self::Undefined),
-                24 => {
-                    if let Some(next_num) = cbor_iter.next() {
-                        if *next_num < 32 {
-                            Err(Error::Invalid("Simple value cannot have less than 32 value when using 24 additional info".to_string()))
-                        } else {
-                            Ok(Self::UnknownSimple(*next_num))
-                        }
-                    } else {
-                        Err(Error::Invalid("Missing number for simple".to_string()))
-                    }
-                }
-                25 => {
-                    let number_representation =
-                        u16::try_from(extract_number(additional_information, cbor_iter)?)
-                            .map_err(|_| Error::Invalid("Invalid number for f16".to_string()))?;
-                    Ok(Self::Floating(f64::from(f16::from_bits(
-                        number_representation,
-                    ))))
-                }
-                26 => {
-                    let number_representation =
-                        u32::try_from(extract_number(additional_information, cbor_iter)?)
-                            .map_err(|_| Error::Invalid("Invalid number for f32".to_string()))?;
-                    Ok(Self::Floating(f64::from(f32::from_bits(
-                        number_representation,
-                    ))))
-                }
-                27 => {
-                    let f64_number_representation =
-                        extract_number(additional_information, cbor_iter)?;
-                    Ok(Self::Floating(f64::from_bits(f64_number_representation)))
-                }
-                28..=30 => Err(Error::Invalid("not well formed currently".to_string())),
-                31 => Err(Error::Invalid("break stop cannot be itself".to_string())),
-                _ => unreachable!("Cannot have additional info value greater than 31"),
-            },
-            _ => unreachable!("major type can only be between 0 to 7"),
+            Ok(Value::Array(val_vec))
         }
+        5 => {
+            let length = extract_optional_number(additional, iter)?;
+            let mut val_vec = vec![];
+            if let Some(num) = length {
+                for _ in 0..num {
+                    let key = decode_value(iter)?;
+                    let val = decode_value(iter)?;
+                    val_vec.push((key, val));
+                }
+            } else {
+                val_vec.append(&mut decode_map(iter)?);
+                match iter.clone().next() {
+                    Some(255) => {
+                        iter.next();
+                    }
+                    None => {
+                        return Err(Error::Invalid("incomplete indefinite map".to_string()));
+                    }
+                    _ => unreachable!("non 255 some value should be handled already"),
+                }
+            }
+            Ok(Value::Map(val_vec))
+        }
+        6 => {
+            let tag_number = extract_number(additional, iter)?;
+            let tag_value = decode_value(iter)?;
+            Ok(Value::Tag(tag_number, Box::new(tag_value)))
+        }
+        7 => match additional {
+            0..=19 => Ok(Value::UnknownSimple(additional)),
+            20 => Ok(Value::Boolean(false)),
+            21 => Ok(Value::Boolean(true)),
+            22 => Ok(Value::Null),
+            23 => Ok(Value::Undefined),
+            24 => {
+                if let Some(next_num) = iter.next() {
+                    if *next_num < 32 {
+                        Err(Error::Invalid("Simple value cannot have less than 32 value when using 24 additional info".to_string()))
+                    } else {
+                        Ok(Value::UnknownSimple(*next_num))
+                    }
+                } else {
+                    Err(Error::Invalid("Missing number for simple".to_string()))
+                }
+            }
+            25 => {
+                let number_representation = u16::try_from(extract_number(additional, iter)?)
+                    .map_err(|_| Error::Invalid("Invalid number for f16".to_string()))?;
+                Ok(Value::Floating(f64::from(f16::from_bits(
+                    number_representation,
+                ))))
+            }
+            26 => {
+                let number_representation = u32::try_from(extract_number(additional, iter)?)
+                    .map_err(|_| Error::Invalid("Invalid number for f32".to_string()))?;
+                Ok(Value::Floating(f64::from(f32::from_bits(
+                    number_representation,
+                ))))
+            }
+            27 => {
+                let f64_number_representation = extract_number(additional, iter)?;
+                Ok(Value::Floating(f64::from_bits(f64_number_representation)))
+            }
+            28..=30 => Err(Error::Invalid("not well formed currently".to_string())),
+            31 => Err(Error::Invalid("break stop cannot be itself".to_string())),
+            _ => unreachable!("Cannot have additional info value greater than 31"),
+        },
+        _ => unreachable!("major type can only be between 0 to 7"),
     }
 }
 
@@ -361,15 +351,12 @@ fn f64_to_cbor_u8(major_type: u8, f64_number: f64) -> Vec<u8> {
     cbor_representation
 }
 
-fn collect_indefinite_length_vec_u8_value(
-    major_type: u8,
-    cbor_iter: &mut Peekable<Iter<'_, u8>>,
-) -> Result<Vec<u8>, Error> {
+fn decode_vec_u8(major_type: u8, iter: &mut Iter<'_, u8>) -> Result<Vec<u8>, Error> {
     let mut result = vec![];
-    if let Some(peek_val) = cbor_iter.peek()
-        && peek_val != &&255
+    if let Some(peek_val) = iter.clone().next()
+        && peek_val != &255
     {
-        let val = Value::decode(cbor_iter)?;
+        let val = decode_value(iter)?;
         if val.major_type() != major_type {
             return Err(Error::Invalid("invalid major in between".to_string()));
         }
@@ -378,29 +365,25 @@ fn collect_indefinite_length_vec_u8_value(
             Value::Text(text) => result.append(&mut text.as_bytes().to_vec()),
             _ => unreachable!("only text and byte calls this function"),
         }
-        result.append(&mut collect_indefinite_length_vec_u8_value(
-            major_type, cbor_iter,
-        )?);
+        result.append(&mut decode_vec_u8(major_type, iter)?);
     }
     Ok(result)
 }
 
 fn decode_byte_or_text(
     major_type: u8,
-    additional_information: u8,
-    cbor_iter: &mut Peekable<Iter<'_, u8>>,
+    additional: u8,
+    iter: &mut Iter<'_, u8>,
 ) -> Result<Vec<u8>, Error> {
-    let length = indefinite_extract_number(additional_information, cbor_iter)?;
+    let length = extract_optional_number(additional, iter)?;
     let mut val_vec = vec![];
     if let Some(num) = length {
-        val_vec.append(&mut collect_next_n_val(cbor_iter, num)?);
+        val_vec.append(&mut collect_vec_u8(iter, num)?);
     } else {
-        val_vec.append(&mut collect_indefinite_length_vec_u8_value(
-            major_type, cbor_iter,
-        )?);
-        match cbor_iter.peek() {
+        val_vec.append(&mut decode_vec_u8(major_type, iter)?);
+        match iter.clone().next() {
             Some(255) => {
-                cbor_iter.next();
+                iter.next();
             }
             None => return Err(Error::Invalid("incomplete indefinite map".to_string())),
             _ => unreachable!("non 255 some value should be handled already"),
@@ -409,42 +392,35 @@ fn decode_byte_or_text(
     Ok(val_vec)
 }
 
-fn collect_indefinite_length_array_value(
-    cbor_iter: &mut Peekable<Iter<'_, u8>>,
-) -> Result<Vec<Value>, Error> {
+fn decode_array(iter: &mut Iter<'_, u8>) -> Result<Vec<Value>, Error> {
     let mut result = vec![];
-    if let Some(peek_val) = cbor_iter.peek()
-        && peek_val != &&255
+    if let Some(peek_val) = iter.clone().next()
+        && peek_val != &255
     {
-        result.push(Value::decode(cbor_iter)?);
-        result.append(&mut collect_indefinite_length_array_value(cbor_iter)?);
+        result.push(decode_value(iter)?);
+        result.append(&mut decode_array(iter)?);
     }
     Ok(result)
 }
 
-fn collect_indefinite_length_map_value(
-    cbor_iter: &mut Peekable<Iter<'_, u8>>,
-) -> Result<Vec<(Value, Value)>, Error> {
+fn decode_map(iter: &mut Iter<'_, u8>) -> Result<Vec<(Value, Value)>, Error> {
     let mut result = vec![];
-    if let Some(peek_val) = cbor_iter.peek()
-        && peek_val != &&255
+    if let Some(peek_val) = iter.clone().next()
+        && peek_val != &255
     {
-        let key = Value::decode(cbor_iter)?;
-        let val = Value::decode(cbor_iter)?;
+        let key = decode_value(iter)?;
+        let val = decode_value(iter)?;
         result.push((key, val));
-        result.append(&mut collect_indefinite_length_map_value(cbor_iter)?);
+        result.append(&mut decode_map(iter)?);
     }
 
     Ok(result)
 }
 
-fn collect_next_n_val(
-    cbor_iter: &mut Peekable<Iter<'_, u8>>,
-    number: u64,
-) -> Result<Vec<u8>, Error> {
+fn collect_vec_u8(iter: &mut Iter<'_, u8>, number: u64) -> Result<Vec<u8>, Error> {
     let mut collected_val = Vec::new();
     for _ in 0..number {
-        match cbor_iter.next() {
+        match iter.next() {
             Some(item) => collected_val.push(*item),
             None => return Err(Error::Invalid("incomplete value missing bytes".to_string())),
         }
@@ -452,15 +428,11 @@ fn collect_next_n_val(
     Ok(collected_val)
 }
 
-fn indefinite_extract_number(
-    additional_information: u8,
-    cbor_iter: &mut Peekable<Iter<'_, u8>>,
-) -> Result<Option<u64>, Error> {
-    match additional_information {
-        0..=23 => Ok(Some(u64::from(additional_information))),
+fn extract_optional_number(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Option<u64>, Error> {
+    match additional {
+        0..=23 => Ok(Some(u64::from(additional))),
         24..=27 => {
-            let number_bytes =
-                collect_next_n_val(cbor_iter, 2u64.pow(u32::from(additional_information - 24)))?;
+            let number_bytes = collect_vec_u8(iter, 2u64.pow(u32::from(additional - 24)))?;
             let mut array = [0u8; 8];
             let len = number_bytes.len();
             array[8 - len..].copy_from_slice(&number_bytes[..len]);
@@ -474,11 +446,8 @@ fn indefinite_extract_number(
     }
 }
 
-fn extract_number(
-    additional_information: u8,
-    cbor_iter: &mut Peekable<Iter<'_, u8>>,
-) -> Result<u64, Error> {
-    indefinite_extract_number(additional_information, cbor_iter)?.ok_or(Error::Invalid(
+fn extract_number(additional: u8, iter: &mut Iter<'_, u8>) -> Result<u64, Error> {
+    extract_optional_number(additional, iter)?.ok_or(Error::Invalid(
         "major type does not support indefinite value".to_string(),
     ))
 }
@@ -508,9 +477,10 @@ mod tests {
         let value = value_into.into();
         let vec_u8_cbor =
             hex::decode(hex_cbor).unwrap_or_else(|_| panic!(" failed to decode hex {hex_cbor}"));
-        let cbor_to_value = Value::decode(&mut vec_u8_cbor.iter().peekable()).unwrap_or_else(
-            |err: crate::error::Error| panic!("{err} failed to decode value {hex_cbor}"),
-        );
+        let cbor_to_value =
+            Value::decode(&vec_u8_cbor).unwrap_or_else(|err: crate::error::Error| {
+                panic!("{err} failed to decode value {hex_cbor}")
+            });
         assert_eq!(&cbor_to_value, &value, "{hex_cbor}");
     }
 
@@ -523,7 +493,7 @@ mod tests {
             .unwrap_or_else(|err| panic!("{err} failed to decode hex {hex_cbor}"));
         let value_to_cbor = value.encode();
         assert_eq!(value_to_cbor, vec_u8_cbor, "{hex_cbor}");
-        let cbor_to_value = Value::decode(&mut vec_u8_cbor.iter().peekable())
+        let cbor_to_value = Value::decode(&vec_u8_cbor)
             .unwrap_or_else(|err| panic!("{err} failed to decode value {hex_cbor}"));
         assert_eq!(&cbor_to_value, &value, "{hex_cbor}");
     }
@@ -704,41 +674,28 @@ mod tests {
 
     #[test]
     fn test_failure() {
-        assert!(Value::decode(&mut hex::decode("1c").unwrap().iter().peekable()).is_err());
-        assert!(Value::decode(&mut hex::decode("7f14").unwrap().iter().peekable()).is_err());
-        assert!(Value::decode(&mut hex::decode("f801").unwrap().iter().peekable()).is_err());
-        assert!(Value::decode(&mut hex::decode("9fde").unwrap().iter().peekable()).is_err());
-        assert!(Value::decode(&mut hex::decode("bf3e").unwrap().iter().peekable()).is_err());
-        assert!(Value::decode(&mut hex::decode("7fbb").unwrap().iter().peekable()).is_err());
-        assert!(Value::decode(&mut hex::decode("dc").unwrap().iter().peekable()).is_err());
-        assert!(Value::decode(&mut hex::decode("7f42").unwrap().iter().peekable()).is_err());
-        assert!(Value::decode(&mut hex::decode("5f87").unwrap().iter().peekable()).is_err());
-        assert!(Value::decode(&mut hex::decode("3f").unwrap().iter().peekable()).is_err());
-        assert!(Value::decode(&mut hex::decode("5d").unwrap().iter().peekable()).is_err());
-        assert!(Value::decode(&mut hex::decode("bc").unwrap().iter().peekable()).is_err());
-        assert!(Value::decode(&mut hex::decode("5f4100").unwrap().iter().peekable()).is_err());
-        assert!(Value::decode(&mut hex::decode("5fc000ff").unwrap().iter().peekable()).is_err());
-        assert!(
-            Value::decode(&mut hex::decode("9f819f819f9fffffff").unwrap().iter().peekable())
-                .is_err()
-        );
-        assert!(
-            Value::decode(
-                &mut hex::decode("9f829f819f9fffffffff")
-                    .unwrap()
-                    .iter()
-                    .peekable()
-            )
-            .is_err()
-        );
-        assert!(Value::decode(&mut hex::decode("1a0102").unwrap().iter().peekable()).is_err());
-        assert!(
-            Value::decode(&mut hex::decode("5affffffff00").unwrap().iter().peekable()).is_err()
-        );
-        assert!(Value::decode(&mut hex::decode("bf000000ff").unwrap().iter().peekable()).is_err());
-        assert!(Value::decode(&mut hex::decode("a2000000").unwrap().iter().peekable()).is_err());
-        assert!(Value::decode(&mut hex::decode("5fd9").unwrap().iter().peekable()).is_err());
-        assert!(Value::decode(&mut hex::decode("bffc").unwrap().iter().peekable()).is_err());
-        assert!(Value::decode(&mut hex::decode("ff").unwrap().iter().peekable()).is_err());
+        assert!(Value::decode(&hex::decode("1c").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("7f14").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("f801").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("9fde").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("bf3e").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("7fbb").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("dc").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("7f42").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("5f87").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("3f").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("5d").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("bc").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("5f4100").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("5fc000ff").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("9f819f819f9fffffff").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("9f829f819f9fffffffff").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("1a0102").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("5affffffff00").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("bf000000ff").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("a2000000").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("5fd9").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("bffc").unwrap()).is_err());
+        assert!(Value::decode(&hex::decode("ff").unwrap()).is_err());
     }
 }
