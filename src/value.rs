@@ -1,4 +1,4 @@
-use std::slice::Iter;
+use std::{num::TryFromIntError, slice::Iter};
 
 use crate::error::Error;
 
@@ -35,6 +35,57 @@ pub enum Value {
 impl From<u64> for Value {
     fn from(value: u64) -> Self {
         Self::Unsigned(value)
+    }
+}
+
+impl From<u32> for Value {
+    fn from(value: u32) -> Self {
+        u64::from(value).into()
+    }
+}
+
+impl TryFrom<u128> for Value {
+    type Error = TryFromIntError;
+
+    fn try_from(value: u128) -> Result<Self, Self::Error> {
+        Ok(u64::try_from(value)?.into())
+    }
+}
+
+impl From<i64> for Value {
+    fn from(value: i64) -> Self {
+        match value.is_negative() {
+            true => {
+                let positive_val = -value - 1;
+                let u64_val =
+                    u64::try_from(positive_val).expect("i64 positive can be converted to u64");
+                Self::Signed(u64_val)
+            }
+            false => {
+                let u64_val = u64::try_from(value).expect("i64 positive can be converted to u64");
+                Self::Unsigned(u64_val)
+            }
+        }
+    }
+}
+
+impl From<i32> for Value {
+    fn from(value: i32) -> Self {
+        i64::from(value).into()
+    }
+}
+
+impl TryFrom<i128> for Value {
+    type Error = TryFromIntError;
+
+    fn try_from(value: i128) -> Result<Self, Self::Error> {
+        match value.is_negative() {
+            true => {
+                let positive_val = -value - 1;
+                Ok(Self::Signed(u64::try_from(positive_val)?))
+            }
+            false => Ok(Self::Unsigned(u64::try_from(value)?)),
+        }
     }
 }
 
@@ -115,16 +166,14 @@ impl Value {
     pub fn encode(&self) -> Vec<u8> {
         match self {
             Value::Unsigned(number) | Value::Signed(number) => {
-                u64_to_cbor_u8(self.major_type(), *number)
+                encode_u64_number(self.major_type(), *number)
             }
-            Value::Byte(byte) => vec_u8_to_cbor_u8(self.major_type(), byte),
-            Value::Text(text_string) => {
-                vec_u8_to_cbor_u8(self.major_type(), text_string.as_bytes())
-            }
+            Value::Byte(byte) => encode_vec_u8(self.major_type(), byte),
+            Value::Text(text_string) => encode_vec_u8(self.major_type(), text_string.as_bytes()),
             Value::Array(array) => {
                 let array_len = u64::try_from(array.len());
                 let mut array_bytes = if let Ok(length) = array_len {
-                    u64_to_cbor_u8(self.major_type(), length)
+                    encode_u64_number(self.major_type(), length)
                 } else {
                     vec![self.major_type() << 5 | 31]
                 };
@@ -139,7 +188,7 @@ impl Value {
             Value::Map(map) => {
                 let map_len = u64::try_from(map.len());
                 let mut map_bytes = if let Ok(length) = map_len {
-                    u64_to_cbor_u8(self.major_type(), length)
+                    encode_u64_number(self.major_type(), length)
                 } else {
                     vec![self.major_type() << 5 | 31]
                 };
@@ -153,7 +202,7 @@ impl Value {
                 map_bytes
             }
             Value::Tag(number, value) => {
-                let mut tag_bytes = u64_to_cbor_u8(self.major_type(), *number);
+                let mut tag_bytes = encode_u64_number(self.major_type(), *number);
                 tag_bytes.append(&mut value.encode());
                 tag_bytes
             }
@@ -163,7 +212,7 @@ impl Value {
             },
             Value::Null => vec![self.major_type() << 5 | 22],
             Value::Undefined => vec![self.major_type() << 5 | 23],
-            Value::Floating(number) => f64_to_cbor_u8(self.major_type(), *number),
+            Value::Floating(number) => encode_f64_number(self.major_type(), *number),
             Value::UnknownSimple(simple_number) => {
                 if *simple_number <= 23 {
                     vec![self.major_type() << 5 | simple_number]
@@ -181,33 +230,7 @@ impl Value {
     }
 }
 
-fn decode_value(iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
-    let initial_info = iter.next().ok_or(Error::Empty)?;
-    let major_type = initial_info >> 5;
-    let additional = initial_info & 0b00011111;
-    match major_type {
-        0 => Ok(Value::Unsigned(extract_number(additional, iter)?)),
-        1 => Ok(Value::Signed(extract_number(additional, iter)?)),
-        2 => Ok(Value::Byte(decode_byte_or_text(
-            major_type, additional, iter,
-        )?)),
-        3 => Ok(Value::Text(
-            String::from_utf8(decode_byte_or_text(major_type, additional, iter)?)
-                .map_err(|_| Error::Invalid("invalid UTF-8 string".to_string()))?,
-        )),
-        4 => decode_array(additional, iter),
-        5 => decode_map(additional, iter),
-        6 => {
-            let tag_number = extract_number(additional, iter)?;
-            let tag_value = decode_value(iter)?;
-            Ok(Value::Tag(tag_number, Box::new(tag_value)))
-        }
-        7 => decode_simple_or_floating(additional, iter),
-        _ => unreachable!("major type can only be between 0 to 7"),
-    }
-}
-
-fn u64_to_cbor_u8(major_type: u8, number: u64) -> Vec<u8> {
+fn encode_u64_number(major_type: u8, number: u64) -> Vec<u8> {
     let shifted_major_type = major_type << 5;
     let mut cbor_representation = vec![];
     if let Ok(u8_value) = u8::try_from(number) {
@@ -236,10 +259,10 @@ fn u64_to_cbor_u8(major_type: u8, number: u64) -> Vec<u8> {
     cbor_representation
 }
 
-fn vec_u8_to_cbor_u8(major_type: u8, byte: &[u8]) -> Vec<u8> {
+fn encode_vec_u8(major_type: u8, byte: &[u8]) -> Vec<u8> {
     let byte_length = u64::try_from(byte.len());
     let mut bytes = if let Ok(length) = byte_length {
-        u64_to_cbor_u8(major_type, length)
+        encode_u64_number(major_type, length)
     } else {
         vec![major_type << 5 | 31]
     };
@@ -250,7 +273,7 @@ fn vec_u8_to_cbor_u8(major_type: u8, byte: &[u8]) -> Vec<u8> {
     bytes
 }
 
-fn f64_to_cbor_u8(major_type: u8, f64_number: f64) -> Vec<u8> {
+fn encode_f64_number(major_type: u8, f64_number: f64) -> Vec<u8> {
     let shifted_major_type = major_type << 5;
     let mut cbor_representation = vec![];
     if f64::from(f64_number as f16) == f64_number {
@@ -270,6 +293,32 @@ fn f64_to_cbor_u8(major_type: u8, f64_number: f64) -> Vec<u8> {
         }
     }
     cbor_representation
+}
+
+fn decode_value(iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
+    let initial_info = iter.next().ok_or(Error::Empty)?;
+    let major_type = initial_info >> 5;
+    let additional = initial_info & 0b00011111;
+    match major_type {
+        0 => Ok(Value::Unsigned(extract_number(additional, iter)?)),
+        1 => Ok(Value::Signed(extract_number(additional, iter)?)),
+        2 => Ok(Value::Byte(decode_byte_or_text(
+            major_type, additional, iter,
+        )?)),
+        3 => Ok(Value::Text(
+            String::from_utf8(decode_byte_or_text(major_type, additional, iter)?)
+                .map_err(|_| Error::Invalid("invalid UTF-8 string".to_string()))?,
+        )),
+        4 => decode_array(additional, iter),
+        5 => decode_map(additional, iter),
+        6 => {
+            let tag_number = extract_number(additional, iter)?;
+            let tag_value = decode_value(iter)?;
+            Ok(Value::Tag(tag_number, Box::new(tag_value)))
+        }
+        7 => decode_simple_or_floating(additional, iter),
+        _ => unreachable!("major type can only be between 0 to 7"),
+    }
 }
 
 fn decode_byte_or_text(
@@ -521,13 +570,16 @@ mod tests {
         compare_cbor_value("1864", 100);
         compare_cbor_value("1903e8", 1000);
         compare_cbor_value("1a000f4240", 1_000_000);
-        compare_cbor_value("1b000000e8d4a51000", 1_000_000_000_000);
-        compare_cbor_value("1bffffffffffffffff", 18_446_744_073_709_551_615);
-        compare_cbor_value("3bffffffffffffffff", Value::Signed(18446744073709551615));
-        compare_cbor_value("20", Value::Signed(0));
-        compare_cbor_value("29", Value::Signed(9));
-        compare_cbor_value("3863", Value::Signed(99));
-        compare_cbor_value("3903e7", Value::Signed(999));
+        compare_cbor_value("1b000000e8d4a51000", 1_000_000_000_000u64);
+        compare_cbor_value("1bffffffffffffffff", 18_446_744_073_709_551_615u64);
+        compare_cbor_value(
+            "3bffffffffffffffff",
+            Value::try_from(-18_446_744_073_709_551_616_i128).unwrap(),
+        );
+        compare_cbor_value("20", -1);
+        compare_cbor_value("29", -10);
+        compare_cbor_value("3863", -100);
+        compare_cbor_value("3903e7", -1000);
     }
 
     #[test]
@@ -680,7 +732,7 @@ mod tests {
         );
         decode_compare(
             "bf6346756ef563416d7421ff",
-            vec![("Fun", Value::from(true)), ("Amt", Value::Signed(1))],
+            vec![("Fun", Value::from(true)), ("Amt", Value::from(-2))],
         );
     }
 
