@@ -4,6 +4,7 @@ use crate::error::Error;
 
 /// Enum representing different type of value which can be represented in CBOR
 #[derive(PartialEq, Debug)]
+#[non_exhaustive]
 pub enum Value {
     /// Unsigned integer represented by major type 0
     Unsigned(u64),
@@ -194,94 +195,14 @@ fn decode_value(iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
             String::from_utf8(decode_byte_or_text(major_type, additional, iter)?)
                 .map_err(|_| Error::Invalid("invalid UTF-8 string".to_string()))?,
         )),
-        4 => {
-            let length = extract_optional_number(additional, iter)?;
-            let mut val_vec = vec![];
-            if let Some(num) = length {
-                for _ in 0..num {
-                    val_vec.push(decode_value(iter)?);
-                }
-            } else {
-                val_vec.append(&mut decode_array(iter)?);
-                match iter.clone().next() {
-                    Some(255) => {
-                        iter.next();
-                    }
-                    None => {
-                        return Err(Error::Invalid("incomplete indefinite array".to_string()));
-                    }
-                    _ => unreachable!("non 255 some value should be handled already"),
-                }
-            }
-            Ok(Value::Array(val_vec))
-        }
-        5 => {
-            let length = extract_optional_number(additional, iter)?;
-            let mut val_vec = vec![];
-            if let Some(num) = length {
-                for _ in 0..num {
-                    let key = decode_value(iter)?;
-                    let val = decode_value(iter)?;
-                    val_vec.push((key, val));
-                }
-            } else {
-                val_vec.append(&mut decode_map(iter)?);
-                match iter.clone().next() {
-                    Some(255) => {
-                        iter.next();
-                    }
-                    None => {
-                        return Err(Error::Invalid("incomplete indefinite map".to_string()));
-                    }
-                    _ => unreachable!("non 255 some value should be handled already"),
-                }
-            }
-            Ok(Value::Map(val_vec))
-        }
+        4 => decode_array(additional, iter),
+        5 => decode_map(additional, iter),
         6 => {
             let tag_number = extract_number(additional, iter)?;
             let tag_value = decode_value(iter)?;
             Ok(Value::Tag(tag_number, Box::new(tag_value)))
         }
-        7 => match additional {
-            0..=19 => Ok(Value::UnknownSimple(additional)),
-            20 => Ok(Value::Boolean(false)),
-            21 => Ok(Value::Boolean(true)),
-            22 => Ok(Value::Null),
-            23 => Ok(Value::Undefined),
-            24 => {
-                if let Some(next_num) = iter.next() {
-                    if *next_num < 32 {
-                        Err(Error::Invalid("Simple value cannot have less than 32 value when using 24 additional info".to_string()))
-                    } else {
-                        Ok(Value::UnknownSimple(*next_num))
-                    }
-                } else {
-                    Err(Error::Invalid("Missing number for simple".to_string()))
-                }
-            }
-            25 => {
-                let number_representation = u16::try_from(extract_number(additional, iter)?)
-                    .map_err(|_| Error::Invalid("Invalid number for f16".to_string()))?;
-                Ok(Value::Floating(f64::from(f16::from_bits(
-                    number_representation,
-                ))))
-            }
-            26 => {
-                let number_representation = u32::try_from(extract_number(additional, iter)?)
-                    .map_err(|_| Error::Invalid("Invalid number for f32".to_string()))?;
-                Ok(Value::Floating(f64::from(f32::from_bits(
-                    number_representation,
-                ))))
-            }
-            27 => {
-                let f64_number_representation = extract_number(additional, iter)?;
-                Ok(Value::Floating(f64::from_bits(f64_number_representation)))
-            }
-            28..=30 => Err(Error::Invalid("not well formed currently".to_string())),
-            31 => Err(Error::Invalid("break stop cannot be itself".to_string())),
-            _ => unreachable!("Cannot have additional info value greater than 31"),
-        },
+        7 => decode_simple_or_floating(additional, iter),
         _ => unreachable!("major type can only be between 0 to 7"),
     }
 }
@@ -351,25 +272,6 @@ fn f64_to_cbor_u8(major_type: u8, f64_number: f64) -> Vec<u8> {
     cbor_representation
 }
 
-fn decode_vec_u8(major_type: u8, iter: &mut Iter<'_, u8>) -> Result<Vec<u8>, Error> {
-    let mut result = vec![];
-    if let Some(peek_val) = iter.clone().next()
-        && peek_val != &255
-    {
-        let val = decode_value(iter)?;
-        if val.major_type() != major_type {
-            return Err(Error::Invalid("invalid major in between".to_string()));
-        }
-        match val {
-            Value::Byte(mut byte) => result.append(&mut byte),
-            Value::Text(text) => result.append(&mut text.as_bytes().to_vec()),
-            _ => unreachable!("only text and byte calls this function"),
-        }
-        result.append(&mut decode_vec_u8(major_type, iter)?);
-    }
-    Ok(result)
-}
-
 fn decode_byte_or_text(
     major_type: u8,
     additional: u8,
@@ -392,18 +294,128 @@ fn decode_byte_or_text(
     Ok(val_vec)
 }
 
-fn decode_array(iter: &mut Iter<'_, u8>) -> Result<Vec<Value>, Error> {
+fn decode_array(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
+    let length = extract_optional_number(additional, iter)?;
+    let mut val_vec = vec![];
+    if let Some(num) = length {
+        for _ in 0..num {
+            val_vec.push(decode_value(iter)?);
+        }
+    } else {
+        val_vec.append(&mut extract_array_item(iter)?);
+        match iter.clone().next() {
+            Some(255) => {
+                iter.next();
+            }
+            None => {
+                return Err(Error::Invalid("incomplete indefinite array".to_string()));
+            }
+            _ => unreachable!("non 255 some value should be handled already"),
+        }
+    }
+    Ok(Value::Array(val_vec))
+}
+
+fn decode_map(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
+    let length = extract_optional_number(additional, iter)?;
+    let mut val_vec = vec![];
+    if let Some(num) = length {
+        for _ in 0..num {
+            let key = decode_value(iter)?;
+            let val = decode_value(iter)?;
+            val_vec.push((key, val));
+        }
+    } else {
+        val_vec.append(&mut extract_map_item(iter)?);
+        match iter.clone().next() {
+            Some(255) => {
+                iter.next();
+            }
+            None => {
+                return Err(Error::Invalid("incomplete indefinite map".to_string()));
+            }
+            _ => unreachable!("non 255 some value should be handled already"),
+        }
+    }
+    Ok(Value::Map(val_vec))
+}
+
+fn decode_simple_or_floating(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
+    match additional {
+        0..=19 => Ok(Value::UnknownSimple(additional)),
+        20 => Ok(Value::Boolean(false)),
+        21 => Ok(Value::Boolean(true)),
+        22 => Ok(Value::Null),
+        23 => Ok(Value::Undefined),
+        24 => {
+            if let Some(next_num) = iter.next() {
+                if *next_num < 32 {
+                    Err(Error::Invalid(
+                        "Simple value cannot have less than 32 value when using 24 additional info"
+                            .to_string(),
+                    ))
+                } else {
+                    Ok(Value::UnknownSimple(*next_num))
+                }
+            } else {
+                Err(Error::Invalid("Missing number for simple".to_string()))
+            }
+        }
+        25 => {
+            let number_representation = u16::try_from(extract_number(additional, iter)?)
+                .map_err(|_| Error::Invalid("Invalid number for f16".to_string()))?;
+            Ok(Value::Floating(f64::from(f16::from_bits(
+                number_representation,
+            ))))
+        }
+        26 => {
+            let number_representation = u32::try_from(extract_number(additional, iter)?)
+                .map_err(|_| Error::Invalid("Invalid number for f32".to_string()))?;
+            Ok(Value::Floating(f64::from(f32::from_bits(
+                number_representation,
+            ))))
+        }
+        27 => {
+            let f64_number_representation = extract_number(additional, iter)?;
+            Ok(Value::Floating(f64::from_bits(f64_number_representation)))
+        }
+        28..=30 => Err(Error::Invalid("not well formed currently".to_string())),
+        31 => Err(Error::Invalid("break stop cannot be itself".to_string())),
+        _ => unreachable!("Cannot have additional info value greater than 31"),
+    }
+}
+
+fn decode_vec_u8(major_type: u8, iter: &mut Iter<'_, u8>) -> Result<Vec<u8>, Error> {
+    let mut result = vec![];
+    if let Some(peek_val) = iter.clone().next()
+        && peek_val != &255
+    {
+        let val = decode_value(iter)?;
+        if val.major_type() != major_type {
+            return Err(Error::Invalid("invalid major in between".to_string()));
+        }
+        match val {
+            Value::Byte(mut byte) => result.append(&mut byte),
+            Value::Text(text) => result.append(&mut text.as_bytes().to_vec()),
+            _ => unreachable!("only text and byte calls this function"),
+        }
+        result.append(&mut decode_vec_u8(major_type, iter)?);
+    }
+    Ok(result)
+}
+
+fn extract_array_item(iter: &mut Iter<'_, u8>) -> Result<Vec<Value>, Error> {
     let mut result = vec![];
     if let Some(peek_val) = iter.clone().next()
         && peek_val != &255
     {
         result.push(decode_value(iter)?);
-        result.append(&mut decode_array(iter)?);
+        result.append(&mut extract_array_item(iter)?);
     }
     Ok(result)
 }
 
-fn decode_map(iter: &mut Iter<'_, u8>) -> Result<Vec<(Value, Value)>, Error> {
+fn extract_map_item(iter: &mut Iter<'_, u8>) -> Result<Vec<(Value, Value)>, Error> {
     let mut result = vec![];
     if let Some(peek_val) = iter.clone().next()
         && peek_val != &255
@@ -411,7 +423,7 @@ fn decode_map(iter: &mut Iter<'_, u8>) -> Result<Vec<(Value, Value)>, Error> {
         let key = decode_value(iter)?;
         let val = decode_value(iter)?;
         result.push((key, val));
-        result.append(&mut decode_map(iter)?);
+        result.append(&mut extract_map_item(iter)?);
     }
 
     Ok(result)
