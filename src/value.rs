@@ -1,9 +1,9 @@
-use std::{num::TryFromIntError, slice::Iter};
+use std::{convert::Into, num::TryFromIntError, slice::Iter};
 
 use crate::error::Error;
 
 /// Enum representing different type of value which can be represented in CBOR
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 #[non_exhaustive]
 pub enum Value {
     /// Unsigned integer represented by major type 0
@@ -68,17 +68,14 @@ impl TryFrom<u128> for Value {
 
 impl From<i64> for Value {
     fn from(value: i64) -> Self {
-        match value.is_negative() {
-            true => {
-                let positive_val = -value - 1;
-                let u64_val =
-                    u64::try_from(positive_val).expect("i64 positive can be converted to u64");
-                Self::Signed(u64_val)
-            }
-            false => {
-                let u64_val = u64::try_from(value).expect("i64 positive can be converted to u64");
-                Self::Unsigned(u64_val)
-            }
+        if value.is_negative() {
+            let positive_val = -value - 1;
+            let u64_val =
+                u64::try_from(positive_val).expect("i64 positive can be converted to u64");
+            Self::Signed(u64_val)
+        } else {
+            let u64_val = u64::try_from(value).expect("i64 positive can be converted to u64");
+            Self::Unsigned(u64_val)
         }
     }
 }
@@ -93,12 +90,11 @@ impl TryFrom<i128> for Value {
     type Error = TryFromIntError;
 
     fn try_from(value: i128) -> Result<Self, Self::Error> {
-        match value.is_negative() {
-            true => {
-                let positive_val = -value - 1;
-                Ok(Self::Signed(u64::try_from(positive_val)?))
-            }
-            false => Ok(Self::Unsigned(u64::try_from(value)?)),
+        if value.is_negative() {
+            let positive_val = -value - 1;
+            Ok(Self::Signed(u64::try_from(positive_val)?))
+        } else {
+            Ok(Self::Unsigned(u64::try_from(value)?))
         }
     }
 }
@@ -138,7 +134,7 @@ where
     T: Into<Value>,
 {
     fn from(value: Vec<T>) -> Self {
-        Self::Array(value.into_iter().map(|m| m.into()).collect())
+        Self::Array(value.into_iter().map(Into::into).collect())
     }
 }
 
@@ -159,6 +155,7 @@ where
 
 impl Value {
     /// Get a major type of a value
+    #[must_use]
     pub fn major_type(&self) -> u8 {
         match self {
             Value::Unsigned(_) => 0,
@@ -177,6 +174,7 @@ impl Value {
     }
 
     /// Get a CBOR encoded representation of value
+    #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         match self {
             Value::Unsigned(number) | Value::Signed(number) => {
@@ -238,9 +236,68 @@ impl Value {
     }
 
     /// Decode a CBOR representation to a value
+    ///
+    /// # Errors
+    /// If provided bytes cannot be converted to CBOR
     pub fn decode(val: &[u8]) -> Result<Self, Error> {
         let mut iter = val.iter();
         decode_value(&mut iter)
+    }
+
+    /// Get a core deterministic form of a value
+    #[must_use]
+    pub fn core_deterministic(self) -> Self {
+        match self {
+            Self::Map(vector) => {
+                let mut data = vector
+                    .into_iter()
+                    .map(|(k, v)| (k.core_deterministic(), v.core_deterministic()))
+                    .collect::<Vec<_>>();
+                data.sort();
+                Self::Map(data)
+            }
+            Self::Array(val) => {
+                Self::Array(val.into_iter().map(Value::core_deterministic).collect())
+            }
+            Self::Tag(tag_num, val) => Self::Tag(tag_num, Box::new(val.core_deterministic())),
+            _ => self,
+        }
+    }
+
+    /// Get a length first ordering of value
+    #[must_use]
+    pub fn length_first_core_deterministic(self) -> Self {
+        match self {
+            Self::Map(vector) => {
+                let mut data = vector
+                    .into_iter()
+                    .map(|(k, v)| {
+                        (
+                            k.length_first_core_deterministic(),
+                            v.length_first_core_deterministic(),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                data.sort_by(|(k1, _), (k2, _)| {
+                    let key1_encode = k1.encode();
+                    let key2_encode = k2.encode();
+                    match key1_encode.len().cmp(&key2_encode.len()) {
+                        std::cmp::Ordering::Equal => key1_encode.cmp(&key2_encode),
+                        order => order,
+                    }
+                });
+                Self::Map(data)
+            }
+            Self::Array(val) => Self::Array(
+                val.into_iter()
+                    .map(Value::length_first_core_deterministic)
+                    .collect(),
+            ),
+            Self::Tag(tag_num, val) => {
+                Self::Tag(tag_num, Box::new(val.length_first_core_deterministic()))
+            }
+            _ => self,
+        }
     }
 }
 
@@ -290,6 +347,14 @@ fn encode_vec_u8(major_type: u8, byte: &[u8]) -> Vec<u8> {
 fn encode_f64_number(major_type: u8, f64_number: f64) -> Vec<u8> {
     let shifted_major_type = major_type << 5;
     let mut cbor_representation = vec![];
+    #[expect(
+        clippy::float_cmp,
+        reason = "while comparing float it we lose data than it is ok"
+    )]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "allow possible truncation since we only want check truncation loses data or not"
+    )]
     if f64::from(f64_number as f16) == f64_number {
         cbor_representation.push(shifted_major_type | 25);
         for byte in (f64_number as f16).to_be_bytes() {
@@ -312,7 +377,7 @@ fn encode_f64_number(major_type: u8, f64_number: f64) -> Vec<u8> {
 fn decode_value(iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
     let initial_info = iter.next().ok_or(Error::Empty)?;
     let major_type = initial_info >> 5;
-    let additional = initial_info & 0b00011111;
+    let additional = initial_info & 0b0001_1111;
     match major_type {
         0 => Ok(Value::Unsigned(extract_number(additional, iter)?)),
         1 => Ok(Value::Signed(extract_number(additional, iter)?)),
@@ -522,6 +587,8 @@ mod tests {
     use core::f64;
     use std::vec;
 
+    use rand::seq::SliceRandom;
+
     use crate::value::Value;
 
     fn encode_compare<I>(hex_cbor: &str, value_into: I)
@@ -564,7 +631,7 @@ mod tests {
     }
 
     #[test]
-    fn test_integer() {
+    fn integer() {
         compare_cbor_value("00", 0);
         compare_cbor_value("01", 1);
         compare_cbor_value("0a", 10);
@@ -587,7 +654,7 @@ mod tests {
     }
 
     #[test]
-    fn test_float() {
+    fn float() {
         compare_cbor_value("f90000", 0.0);
         compare_cbor_value("f98000", -0.0);
         compare_cbor_value("f93c00", 1.0);
@@ -595,9 +662,9 @@ mod tests {
         compare_cbor_value("f93e00", 1.5);
         compare_cbor_value("f97bff", 65504.0);
         compare_cbor_value("fa47c35000", 100_000.0);
-        compare_cbor_value("f90400", 6.103515625e-05);
-        compare_cbor_value("f90001", 5.960464477539063e-08);
-        compare_cbor_value("fa7f7fffff", 3.4028234663852886e+38);
+        compare_cbor_value("f90400", 6.103_515_625e-05);
+        compare_cbor_value("f90001", 5.960_464_477_539_063e-08);
+        compare_cbor_value("fa7f7fffff", 3.402_823_466_385_288_6e+38);
         compare_cbor_value("fb7e37e43c8800759c", 1.0e+300);
         compare_cbor_value("f9c400", -4.0);
         compare_cbor_value("fbc010666666666666", -4.1);
@@ -611,7 +678,7 @@ mod tests {
     }
 
     #[test]
-    fn test_simple() {
+    fn simple() {
         compare_cbor_value("f4", false);
         compare_cbor_value("f5", true);
         compare_cbor_value("f6", Value::Null);
@@ -622,7 +689,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tag() {
+    fn tag() {
         compare_cbor_value(
             "c074323031332d30332d32315432303a30343a30305a",
             Value::Tag(0, Box::new("2013-03-21T20:04:00Z".into())),
@@ -631,10 +698,13 @@ mod tests {
             "c074323031332d30332d32315432303a30343a30305a",
             Value::Tag(0, Box::new("2013-03-21T20:04:00Z".into())),
         );
-        compare_cbor_value("c11a514b67b0", Value::Tag(1, Box::new(1363896240.into())));
+        compare_cbor_value(
+            "c11a514b67b0",
+            Value::Tag(1, Box::new(1_363_896_240.into())),
+        );
         compare_cbor_value(
             "c1fb41d452d9ec200000",
-            Value::Tag(1, Box::new(1363896240.5.into())),
+            Value::Tag(1, Box::new(1_363_896_240.5.into())),
         );
         compare_cbor_value(
             "d74401020304",
@@ -651,14 +721,14 @@ mod tests {
     }
 
     #[test]
-    fn test_byte() {
+    fn byte() {
         compare_cbor_value("40", Vec::<u8>::new());
         compare_cbor_value("4401020304", hex::decode("01020304").unwrap());
         decode_compare("5f42010243030405ff", hex::decode("0102030405").unwrap());
     }
 
     #[test]
-    fn test_text() {
+    fn text() {
         compare_cbor_value("60", "");
         compare_cbor_value("6161", "a");
         compare_cbor_value("6449455446", "IETF");
@@ -670,7 +740,7 @@ mod tests {
     }
 
     #[test]
-    fn test_array() {
+    fn array() {
         compare_cbor_value("80", Vec::<u64>::new());
         compare_cbor_value("83010203", vec![1u64, 2, 3]);
         compare_cbor_value::<Vec<Value>>(
@@ -719,7 +789,7 @@ mod tests {
     }
 
     #[test]
-    fn test_map() {
+    fn map() {
         compare_cbor_value("a0", Value::Map(vec![]));
         compare_cbor_value("a201020304", vec![(1, 2), (3, 4)]);
         compare_cbor_value(
@@ -741,7 +811,7 @@ mod tests {
     }
 
     #[test]
-    fn test_failure() {
+    fn failure() {
         assert!(Value::decode(&hex::decode("1c").unwrap()).is_err());
         assert!(Value::decode(&hex::decode("7f14").unwrap()).is_err());
         assert!(Value::decode(&hex::decode("f801").unwrap()).is_err());
@@ -765,5 +835,63 @@ mod tests {
         assert!(Value::decode(&hex::decode("5fd9").unwrap()).is_err());
         assert!(Value::decode(&hex::decode("bffc").unwrap()).is_err());
         assert!(Value::decode(&hex::decode("ff").unwrap()).is_err());
+    }
+
+    #[test]
+    fn core_deterministic() {
+        let key_value_vec = vec![
+            (10.into(), "abc".into()),
+            (100.into(), "1020".into()),
+            (Value::from(-1), 12.into()),
+            (Value::from("z"), "a".into()),
+            (Value::from("aa"), Value::from(-1)),
+            (
+                Value::Array(vec![100.into()]),
+                Value::Map(vec![
+                    (1_000_000.into(), "1020".into()),
+                    (Value::from("z"), "a".into()),
+                    (Value::from("aa"), 12.into()),
+                ]),
+            ),
+            (
+                Value::Array(vec![Value::from(-1)]),
+                Value::Array(vec!["cbor".into(), "nano".into()]),
+            ),
+            (false.into(), 12.into()),
+        ];
+        let mut random_key_value = key_value_vec.clone();
+        random_key_value.shuffle(&mut rand::rng());
+        assert_ne!(key_value_vec, random_key_value);
+        let map_val = Value::Map(random_key_value).core_deterministic();
+        assert_eq!(Value::Map(key_value_vec), map_val);
+    }
+
+    #[test]
+    fn length_core_deterministic() {
+        let key_value_vec = vec![
+            (10.into(), "abc".into()),
+            (Value::from(-1), 12.into()),
+            (false.into(), 12.into()),
+            (100.into(), "1020".into()),
+            (Value::from("z"), "a".into()),
+            (
+                Value::Array(vec![Value::from(-1)]),
+                Value::Array(vec!["cbor".into(), "nano".into()]),
+            ),
+            (Value::from("aa"), Value::from(-1)),
+            (
+                Value::Array(vec![100.into()]),
+                Value::Map(vec![
+                    (Value::from("z"), "a".into()),
+                    (Value::from("aa"), 12.into()),
+                    (1_000_000.into(), "1020".into()),
+                ]),
+            ),
+        ];
+        let mut random_key_value = key_value_vec.clone();
+        random_key_value.shuffle(&mut rand::rng());
+        assert_ne!(key_value_vec, random_key_value);
+        let map_val = Value::Map(random_key_value).length_first_core_deterministic();
+        assert_eq!(Value::Map(key_value_vec), map_val);
     }
 }
