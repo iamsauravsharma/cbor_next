@@ -12,7 +12,7 @@ pub enum Error {
     #[error("incomplete indefinite length data")]
     IncompleteIndefinite,
     /// Invalid simple value
-    #[error("invalid simple value simple value cannot be between 24-32")]
+    #[error("invalid simple value simple value cannot be between 20-32")]
     InvalidSimple,
     /// Error converting to a required integer
     #[error(transparent)]
