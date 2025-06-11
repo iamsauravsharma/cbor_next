@@ -22,14 +22,28 @@ pub enum Value {
     Tag(u64, Box<Value>),
     /// Boolean which is represented in major type 7 as simple value
     Boolean(bool),
-    /// Null value
+    /// Null value from major type 7
     Null,
-    /// Undefined value
+    /// Undefined value from major type 7
     Undefined,
     /// Floating value which is major byte 7
     Floating(f64),
-    /// Unknown simple value
+    /// Unknown simple value from major type 7
     UnknownSimple(u8),
+}
+
+impl Eq for Value {}
+
+impl Ord for Value {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.encode().cmp(&other.encode())
+    }
+}
+
+impl PartialOrd for Value {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl From<u64> for Value {
@@ -305,10 +319,9 @@ fn decode_value(iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
         2 => Ok(Value::Byte(decode_byte_or_text(
             major_type, additional, iter,
         )?)),
-        3 => Ok(Value::Text(
-            String::from_utf8(decode_byte_or_text(major_type, additional, iter)?)
-                .map_err(|_| Error::Invalid("invalid UTF-8 string".to_string()))?,
-        )),
+        3 => Ok(Value::Text(String::from_utf8(decode_byte_or_text(
+            major_type, additional, iter,
+        )?)?)),
         4 => decode_array(additional, iter),
         5 => decode_map(additional, iter),
         6 => {
@@ -336,7 +349,7 @@ fn decode_byte_or_text(
             Some(255) => {
                 iter.next();
             }
-            None => return Err(Error::Invalid("incomplete indefinite map".to_string())),
+            None => return Err(Error::IncompleteIndefinite),
             _ => unreachable!("non 255 some value should be handled already"),
         }
     }
@@ -357,7 +370,7 @@ fn decode_array(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Value, Error>
                 iter.next();
             }
             None => {
-                return Err(Error::Invalid("incomplete indefinite array".to_string()));
+                return Err(Error::IncompleteIndefinite);
             }
             _ => unreachable!("non 255 some value should be handled already"),
         }
@@ -381,7 +394,7 @@ fn decode_map(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
                 iter.next();
             }
             None => {
-                return Err(Error::Invalid("incomplete indefinite map".to_string()));
+                return Err(Error::IncompleteIndefinite);
             }
             _ => unreachable!("non 255 some value should be handled already"),
         }
@@ -399,27 +412,22 @@ fn decode_simple_or_floating(additional: u8, iter: &mut Iter<'_, u8>) -> Result<
         24 => {
             if let Some(next_num) = iter.next() {
                 if *next_num < 32 {
-                    Err(Error::Invalid(
-                        "Simple value cannot have less than 32 value when using 24 additional info"
-                            .to_string(),
-                    ))
+                    Err(Error::InvalidSimple)
                 } else {
                     Ok(Value::UnknownSimple(*next_num))
                 }
             } else {
-                Err(Error::Invalid("Missing number for simple".to_string()))
+                Err(Error::InvalidSimple)
             }
         }
         25 => {
-            let number_representation = u16::try_from(extract_number(additional, iter)?)
-                .map_err(|_| Error::Invalid("Invalid number for f16".to_string()))?;
+            let number_representation = u16::try_from(extract_number(additional, iter)?)?;
             Ok(Value::Floating(f64::from(f16::from_bits(
                 number_representation,
             ))))
         }
         26 => {
-            let number_representation = u32::try_from(extract_number(additional, iter)?)
-                .map_err(|_| Error::Invalid("Invalid number for f32".to_string()))?;
+            let number_representation = u32::try_from(extract_number(additional, iter)?)?;
             Ok(Value::Floating(f64::from(f32::from_bits(
                 number_representation,
             ))))
@@ -428,8 +436,8 @@ fn decode_simple_or_floating(additional: u8, iter: &mut Iter<'_, u8>) -> Result<
             let f64_number_representation = extract_number(additional, iter)?;
             Ok(Value::Floating(f64::from_bits(f64_number_representation)))
         }
-        28..=30 => Err(Error::Invalid("not well formed currently".to_string())),
-        31 => Err(Error::Invalid("break stop cannot be itself".to_string())),
+        28..=30 => Err(Error::NotWellFormed),
+        31 => Err(Error::LonelyBreakStop),
         _ => unreachable!("Cannot have additional info value greater than 31"),
     }
 }
@@ -441,7 +449,7 @@ fn decode_vec_u8(major_type: u8, iter: &mut Iter<'_, u8>) -> Result<Vec<u8>, Err
     {
         let val = decode_value(iter)?;
         if val.major_type() != major_type {
-            return Err(Error::Invalid("invalid major in between".to_string()));
+            return Err(Error::NotWellFormed);
         }
         match val {
             Value::Byte(mut byte) => result.append(&mut byte),
@@ -483,7 +491,7 @@ fn collect_vec_u8(iter: &mut Iter<'_, u8>, number: u64) -> Result<Vec<u8>, Error
     for _ in 0..number {
         match iter.next() {
             Some(item) => collected_val.push(*item),
-            None => return Err(Error::Invalid("incomplete value missing bytes".to_string())),
+            None => return Err(Error::NotWellFormed),
         }
     }
     Ok(collected_val)
@@ -499,18 +507,14 @@ fn extract_optional_number(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Op
             array[8 - len..].copy_from_slice(&number_bytes[..len]);
             Ok(Some(u64::from_be_bytes(array)))
         }
-        28..=30 => Err(Error::Invalid(
-            "invalid additional information number".to_string(),
-        )),
+        28..=30 => Err(Error::NotWellFormed),
         31 => Ok(None),
         _ => unreachable!("Cannot have additional info value greater than 31"),
     }
 }
 
 fn extract_number(additional: u8, iter: &mut Iter<'_, u8>) -> Result<u64, Error> {
-    extract_optional_number(additional, iter)?.ok_or(Error::Invalid(
-        "major type does not support indefinite value".to_string(),
-    ))
+    extract_optional_number(additional, iter)?.ok_or(Error::NotWellFormed)
 }
 
 #[cfg(test)]
