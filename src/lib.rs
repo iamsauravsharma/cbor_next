@@ -1,6 +1,9 @@
 #![feature(f16)]
 //! Library to handle a Concise Binary Object Representation (CBOR)
 
+/// Module containing different deterministic mode
+pub mod deterministic;
+
 /// Module containing different type of error
 pub mod error;
 

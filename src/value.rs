@@ -1,6 +1,6 @@
 use std::{convert::Into, num::TryFromIntError, slice::Iter};
 
-use crate::error::Error;
+use crate::{deterministic::DeterministicMode, error::Error};
 
 /// Enum representing different type of value which can be represented in CBOR
 #[derive(PartialEq, Debug, Clone)]
@@ -244,58 +244,35 @@ impl Value {
         decode_value(&mut iter)
     }
 
-    /// Get a core deterministic form of a value
+    /// Get a deterministic form in provided mode
     #[must_use]
-    pub fn core_deterministic(self) -> Self {
+    pub fn deterministic(self, mode: &DeterministicMode) -> Self {
         match self {
             Self::Map(vector) => {
                 let mut data = vector
                     .into_iter()
-                    .map(|(k, v)| (k.core_deterministic(), v.core_deterministic()))
+                    .map(|(k, v)| (k.deterministic(mode), v.deterministic(mode)))
                     .collect::<Vec<_>>();
-                data.sort();
+                match mode {
+                    DeterministicMode::Core => data.sort(),
+                    DeterministicMode::LengthFirst => {
+                        data.sort_by(|(k1, _), (k2, _)| {
+                            let key1_encode = k1.encode();
+                            let key2_encode = k2.encode();
+                            match key1_encode.len().cmp(&key2_encode.len()) {
+                                std::cmp::Ordering::Equal => key1_encode.cmp(&key2_encode),
+                                order => order,
+                            }
+                        });
+                    }
+                }
+
                 Self::Map(data)
             }
             Self::Array(val) => {
-                Self::Array(val.into_iter().map(Value::core_deterministic).collect())
+                Self::Array(val.into_iter().map(|v| v.deterministic(mode)).collect())
             }
-            Self::Tag(tag_num, val) => Self::Tag(tag_num, Box::new(val.core_deterministic())),
-            _ => self,
-        }
-    }
-
-    /// Get a length first ordering of value
-    #[must_use]
-    pub fn length_first_core_deterministic(self) -> Self {
-        match self {
-            Self::Map(vector) => {
-                let mut data = vector
-                    .into_iter()
-                    .map(|(k, v)| {
-                        (
-                            k.length_first_core_deterministic(),
-                            v.length_first_core_deterministic(),
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                data.sort_by(|(k1, _), (k2, _)| {
-                    let key1_encode = k1.encode();
-                    let key2_encode = k2.encode();
-                    match key1_encode.len().cmp(&key2_encode.len()) {
-                        std::cmp::Ordering::Equal => key1_encode.cmp(&key2_encode),
-                        order => order,
-                    }
-                });
-                Self::Map(data)
-            }
-            Self::Array(val) => Self::Array(
-                val.into_iter()
-                    .map(Value::length_first_core_deterministic)
-                    .collect(),
-            ),
-            Self::Tag(tag_num, val) => {
-                Self::Tag(tag_num, Box::new(val.length_first_core_deterministic()))
-            }
+            Self::Tag(tag_num, val) => Self::Tag(tag_num, Box::new(val.deterministic(mode))),
             _ => self,
         }
     }
@@ -589,7 +566,7 @@ mod tests {
 
     use rand::seq::SliceRandom;
 
-    use crate::value::Value;
+    use crate::{deterministic::DeterministicMode, value::Value};
 
     fn encode_compare<I>(hex_cbor: &str, value_into: I)
     where
@@ -862,7 +839,7 @@ mod tests {
         let mut random_key_value = key_value_vec.clone();
         random_key_value.shuffle(&mut rand::rng());
         assert_ne!(key_value_vec, random_key_value);
-        let map_val = Value::Map(random_key_value).core_deterministic();
+        let map_val = Value::Map(random_key_value).deterministic(&DeterministicMode::Core);
         assert_eq!(Value::Map(key_value_vec), map_val);
     }
 
@@ -891,7 +868,7 @@ mod tests {
         let mut random_key_value = key_value_vec.clone();
         random_key_value.shuffle(&mut rand::rng());
         assert_ne!(key_value_vec, random_key_value);
-        let map_val = Value::Map(random_key_value).length_first_core_deterministic();
+        let map_val = Value::Map(random_key_value).deterministic(&DeterministicMode::LengthFirst);
         assert_eq!(Value::Map(key_value_vec), map_val);
     }
 }
