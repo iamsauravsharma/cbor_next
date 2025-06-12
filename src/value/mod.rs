@@ -1,4 +1,6 @@
-use std::{convert::Into, num::TryFromIntError, slice::Iter};
+use std::{convert::Into, hash::Hash, num::TryFromIntError, slice::Iter};
+
+use indexmap::IndexMap;
 
 use crate::{deterministic::DeterministicMode, error::Error};
 
@@ -6,7 +8,7 @@ use crate::{deterministic::DeterministicMode, error::Error};
 mod tests;
 
 /// struct representing simple number which only allow number between 0-19 and 32 -255
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Hash, Clone)]
 pub struct SimpleNumber(u8);
 
 impl SimpleNumber {
@@ -43,7 +45,7 @@ pub enum Value {
     /// Major type 4 representing a array
     Array(Vec<Value>),
     /// Major type 5 representing a Map
-    Map(Vec<(Value, Value)>),
+    Map(IndexMap<Value, Value>),
     /// Major type 6 representing a tag object
     Tag(u64, Box<Value>),
     /// Boolean which is represented in major type 7 as simple value
@@ -56,6 +58,31 @@ pub enum Value {
     Floating(f64),
     /// Unknown simple value from major type 7
     UnknownSimple(SimpleNumber),
+}
+
+impl Hash for Value {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Value::Unsigned(val) | Value::Signed(val) => val.hash(state),
+            Value::Byte(items) => items.hash(state),
+            Value::Text(text) => text.hash(state),
+            Value::Array(values) => values.hash(state),
+            Value::Map(index_map) => {
+                let mut vals = index_map.iter().collect::<Vec<(_, _)>>();
+                vals.sort();
+                vals.hash(state);
+            }
+            Value::Tag(num, value) => {
+                num.hash(state);
+                value.hash(state);
+            }
+            Value::Boolean(val) => val.hash(state),
+            Value::Floating(val) => (val + 0.0).to_be_bytes().hash(state),
+            Value::UnknownSimple(simple_number) => simple_number.hash(state),
+            _ => {}
+        }
+    }
 }
 
 impl Eq for Value {}
@@ -308,7 +335,7 @@ impl Value {
 
     /// Get as map number
     #[must_use]
-    pub fn as_map(&self) -> Option<&Vec<(Value, Value)>> {
+    pub fn as_map(&self) -> Option<&IndexMap<Value, Value>> {
         match self {
             Self::Map(map) => Some(map),
             _ => None,
@@ -453,7 +480,7 @@ impl Value {
                 let mut data = vector
                     .into_iter()
                     .map(|(k, v)| (k.deterministic(mode), v.deterministic(mode)))
-                    .collect::<Vec<_>>();
+                    .collect::<Vec<(_, _)>>();
                 match mode {
                     DeterministicMode::Core => data.sort(),
                     DeterministicMode::LengthFirst => {
@@ -467,8 +494,9 @@ impl Value {
                         });
                     }
                 }
-
-                Self::Map(data)
+                let mut index_map = IndexMap::new();
+                index_map.extend(data);
+                Self::Map(index_map)
             }
             Self::Array(val) => {
                 Self::Array(val.into_iter().map(|v| v.deterministic(mode)).collect())
@@ -622,16 +650,18 @@ fn decode_array(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Value, Error>
 }
 
 fn decode_map(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
-    let length = extract_optional_number(additional, iter)?;
-    let mut val_vec = vec![];
+    let length: Option<u64> = extract_optional_number(additional, iter)?;
+    let mut map_index_map = IndexMap::new();
     if let Some(num) = length {
         for _ in 0..num {
             let key = decode_value(iter)?;
             let val = decode_value(iter)?;
-            val_vec.push((key, val));
+            if map_index_map.insert(key, val).is_some() {
+                return Err(Error::NotWellFormed);
+            }
         }
     } else {
-        val_vec.append(&mut extract_map_item(iter)?);
+        map_index_map.extend(extract_map_item(iter)?);
         match iter.clone().next() {
             Some(255) => {
                 iter.next();
@@ -642,7 +672,7 @@ fn decode_map(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
             _ => unreachable!("non 255 some value should be handled already"),
         }
     }
-    Ok(Value::Map(val_vec))
+    Ok(Value::Map(map_index_map))
 }
 
 fn decode_simple_or_floating(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
@@ -715,15 +745,17 @@ fn extract_array_item(iter: &mut Iter<'_, u8>) -> Result<Vec<Value>, Error> {
     Ok(result)
 }
 
-fn extract_map_item(iter: &mut Iter<'_, u8>) -> Result<Vec<(Value, Value)>, Error> {
-    let mut result = vec![];
+fn extract_map_item(iter: &mut Iter<'_, u8>) -> Result<IndexMap<Value, Value>, Error> {
+    let mut result = IndexMap::new();
     if let Some(peek_val) = iter.clone().next()
         && peek_val != &255
     {
         let key = decode_value(iter)?;
         let val = decode_value(iter)?;
-        result.push((key, val));
-        result.append(&mut extract_map_item(iter)?);
+        if result.insert(key, val).is_some() {
+            return Err(Error::NotWellFormed);
+        }
+        result.extend(extract_map_item(iter)?);
     }
 
     Ok(result)
