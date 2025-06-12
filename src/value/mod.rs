@@ -1,13 +1,18 @@
-use std::{convert::Into, hash::Hash, num::TryFromIntError, slice::Iter};
+use std::convert::Into;
+use std::hash::Hash;
+use std::num::TryFromIntError;
+use std::slice::Iter;
 
 use indexmap::IndexMap;
 
-use crate::{deterministic::DeterministicMode, error::Error};
+use crate::deterministic::DeterministicMode;
+use crate::error::Error;
 
 #[cfg(test)]
 mod tests;
 
-/// struct representing simple number which only allow number between 0-19 and 32 -255
+/// struct representing simple number which only allow number between 0-19 and
+/// 32 -255
 #[derive(PartialEq, Debug, Hash, Clone)]
 pub struct SimpleNumber(u8);
 
@@ -30,33 +35,75 @@ impl SimpleNumber {
     }
 }
 
-/// Enum representing different type of value which can be represented in CBOR
+/// Enum representing different types of values that can be encoded or decoded
+/// in `CBOR` (Concise Binary Object Representation).
+///
+/// `CBOR` is a data format designed for small code and message size, often used
+/// in constrained environments. This `Value` enum covers all major types
+/// defined in the `CBOR` specification (RFC 8949).
 #[derive(PartialEq, Debug, Clone)]
 #[non_exhaustive]
 pub enum Value {
-    /// Unsigned integer represented by major type 0
+    /// Unsigned integer represented by `CBOR` major type 0.
+    ///
+    /// This variant can hold non-negative integer values up to `u64::MAX`.
     Unsigned(u64),
-    /// Negative integer represented by major type 1
+    /// Negative integer represented by `CBOR` major type 1.
+    ///
+    /// This variant stores the absolute value minus one of the negative
+    /// integer. For example, a `CBOR` negative integer representing -1 would
+    /// store `0`, -10 would store `9`. The actual negative value is derived
+    /// as `-(1 + value)`.
     Signed(u64),
-    /// Major type 2 byte string
+    /// Byte string represented by `CBOR` major type 2.
+    ///
+    /// Contains an arbitrary sequence of bytes.
     Byte(Vec<u8>),
-    /// Major type 3 utf8 string
+    /// UTF-8 string (text string) represented by `CBOR` major type 3.
+    ///
+    /// Contains a sequence of Unicode characters encoded as UTF-8.
     Text(String),
-    /// Major type 4 representing a array
+    /// Array of `CBOR` values represented by `CBOR` major type 4.
+    ///
+    /// An ordered sequence of zero or more `CBOR` data items.
     Array(Vec<Value>),
-    /// Major type 5 representing a Map
+    /// Map of `CBOR` key-value pairs represented by `CBOR` major type 5.
+    ///
+    /// Keys within a map must be unique
     Map(IndexMap<Value, Value>),
-    /// Major type 6 representing a tag object
+    /// Tagged item (semantic tag) represented by `CBOR` major type 6.
+    ///
+    /// Consists of an unsigned integer (the tag) and a single `CBOR` data item
+    /// (the tagged content). Tags provide semantic information about the
+    /// enclosed data item, allowing for type extension
+    /// or application-specific interpretations.
     Tag(u64, Box<Value>),
-    /// Boolean which is represented in major type 7 as simple value
+    /// Boolean value represented as a simple value within `CBOR` major type 7.
+    ///
+    /// Can be either `true` or `false`.
     Boolean(bool),
-    /// Null value from major type 7
+    /// Null value represented as a simple value within `CBOR` major type 7.
+    ///
+    /// Represents the absence of a value.
     Null,
-    /// Undefined value from major type 7
+    /// Undefined value represented as a simple value within `CBOR` major type
+    /// 7.
+    ///
+    /// Distinct from `Null`, it represents an undefined state.
     Undefined,
-    /// Floating value which is major byte 7
+    /// Floating-point number represented as a simple value within `CBOR` major
+    /// type 7.
+    ///
+    /// Can represent half-precision (16-bit), single-precision (32-bit), or
+    /// double-precision (64-bit) floating-point numbers. but locally saves
+    /// data as f64
     Floating(f64),
-    /// Unknown simple value from major type 7
+    /// An unknown simple value represented by `CBOR` major type 7.
+    ///
+    /// This variant handles simple values that are not explicitly covered by
+    /// `Boolean`, `Null`, `Undefined`, or `Floating`. These unknown simple
+    /// values have a numerical representation as defined in the `CBOR`
+    /// specification.
     UnknownSimple(SimpleNumber),
 }
 
@@ -105,11 +152,19 @@ impl From<u64> for Value {
     }
 }
 
-impl From<u32> for Value {
-    fn from(value: u32) -> Self {
-        u64::from(value).into()
-    }
+macro_rules! impl_from {
+    ($i:ident, $($t:ty),+) => {
+        $(
+        impl From<$t> for Value {
+            fn from(value: $t) -> Self {
+                $i::from(value).into()
+            }
+        }
+    )+
+    };
 }
+
+impl_from!(u64, u32, u16, u8);
 
 impl TryFrom<u128> for Value {
     type Error = TryFromIntError;
@@ -133,11 +188,7 @@ impl From<i64> for Value {
     }
 }
 
-impl From<i32> for Value {
-    fn from(value: i32) -> Self {
-        i64::from(value).into()
-    }
-}
+impl_from!(i64, i32, i16, i8);
 
 impl TryFrom<i128> for Value {
     type Error = TryFromIntError;
@@ -152,9 +203,9 @@ impl TryFrom<i128> for Value {
     }
 }
 
-impl From<Vec<u8>> for Value {
-    fn from(value: Vec<u8>) -> Self {
-        Self::Byte(value)
+impl From<&[u8]> for Value {
+    fn from(value: &[u8]) -> Self {
+        Self::Byte(value.to_vec())
     }
 }
 
@@ -182,6 +233,8 @@ impl From<f64> for Value {
     }
 }
 
+impl_from!(f64, f32, f16);
+
 impl<T> From<Vec<T>> for Value
 where
     T: Into<Value>,
@@ -203,6 +256,15 @@ where
                 .map(|(t, u)| (t.into(), u.into()))
                 .collect(),
         )
+    }
+}
+
+impl<T> From<&T> for Value
+where
+    T: Into<Value> + Clone,
+{
+    fn from(value: &T) -> Self {
+        value.clone().into()
     }
 }
 
@@ -392,7 +454,7 @@ impl Value {
             Value::Text(_) => 3,
             Value::Array(_) => 4,
             Value::Map(_) => 5,
-            Value::Tag(_, _) => 6,
+            Value::Tag(..) => 6,
             Value::Boolean(_)
             | Value::Null
             | Value::Undefined
@@ -446,10 +508,12 @@ impl Value {
                 tag_bytes.append(&mut value.encode());
                 tag_bytes
             }
-            Value::Boolean(bool_val) => match bool_val {
-                false => vec![self.major_type() << 5 | 20],
-                true => vec![self.major_type() << 5 | 21],
-            },
+            Value::Boolean(bool_val) => {
+                match bool_val {
+                    false => vec![self.major_type() << 5 | 20],
+                    true => vec![self.major_type() << 5 | 21],
+                }
+            }
             Value::Null => vec![self.major_type() << 5 | 22],
             Value::Undefined => vec![self.major_type() << 5 | 23],
             Value::Floating(number) => encode_f64_number(self.major_type(), *number),
@@ -587,12 +651,16 @@ fn decode_value(iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
     match major_type {
         0 => Ok(Value::Unsigned(extract_number(additional, iter)?)),
         1 => Ok(Value::Signed(extract_number(additional, iter)?)),
-        2 => Ok(Value::Byte(decode_byte_or_text(
-            major_type, additional, iter,
-        )?)),
-        3 => Ok(Value::Text(String::from_utf8(decode_byte_or_text(
-            major_type, additional, iter,
-        )?)?)),
+        2 => {
+            Ok(Value::Byte(decode_byte_or_text(
+                major_type, additional, iter,
+            )?))
+        }
+        3 => {
+            Ok(Value::Text(String::from_utf8(decode_byte_or_text(
+                major_type, additional, iter,
+            )?)?))
+        }
         4 => decode_array(additional, iter),
         5 => decode_map(additional, iter),
         6 => {

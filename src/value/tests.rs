@@ -4,9 +4,9 @@ use std::vec;
 use indexmap::IndexMap;
 use rand::seq::SliceRandom;
 
-use crate::{deterministic::DeterministicMode, value::Value};
-
 use super::SimpleNumber;
+use crate::deterministic::DeterministicMode;
+use crate::value::Value;
 
 fn encode_compare<I>(hex_cbor: &str, value_into: I)
 where
@@ -127,11 +127,17 @@ fn tag() {
     );
     compare_cbor_value(
         "d74401020304",
-        Value::Tag(23, Box::new(hex::decode("01020304").unwrap().into())),
+        Value::Tag(
+            23,
+            Box::new(hex::decode("01020304").unwrap().as_slice().into()),
+        ),
     );
     compare_cbor_value(
         "d818456449455446",
-        Value::Tag(24, Box::new(hex::decode("6449455446").unwrap().into())),
+        Value::Tag(
+            24,
+            Box::new(hex::decode("6449455446").unwrap().as_slice().into()),
+        ),
     );
     compare_cbor_value(
         "d82076687474703a2f2f7777772e6578616d706c652e636f6d",
@@ -141,9 +147,12 @@ fn tag() {
 
 #[test]
 fn byte() {
-    compare_cbor_value("40", Vec::<u8>::new());
-    compare_cbor_value("4401020304", hex::decode("01020304").unwrap());
-    decode_compare("5f42010243030405ff", hex::decode("0102030405").unwrap());
+    compare_cbor_value("40", Vec::new().as_slice());
+    compare_cbor_value("4401020304", hex::decode("01020304").unwrap().as_slice());
+    decode_compare(
+        "5f42010243030405ff",
+        hex::decode("0102030405").unwrap().as_slice(),
+    );
 }
 
 #[test]
