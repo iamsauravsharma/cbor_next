@@ -207,7 +207,7 @@ impl From<f64> for Value {
     }
 }
 
-impl_from!(f64, f32, f16);
+impl_from!(f64, f32, half::f16);
 
 impl<T> From<Vec<T>> for Value
 where
@@ -774,17 +774,18 @@ fn encode_vec_u8(major_type: u8, byte: &[u8]) -> Vec<u8> {
 fn encode_f64_number(major_type: u8, f64_number: f64) -> Vec<u8> {
     let shifted_major_type = major_type << 5;
     let mut cbor_representation = vec![];
+    let f16_num = half::f16::from_f64(f64_number);
     #[expect(
         clippy::float_cmp,
-        reason = "while comparing float it we lose data than it is ok"
+        reason = "we want to compare without margin or error"
     )]
     #[expect(
         clippy::cast_possible_truncation,
-        reason = "allow possible truncation since we only want check truncation loses data or not"
+        reason = "we only want to check truncation data loss"
     )]
-    if f64::from(f64_number as f16) == f64_number {
+    if f16_num.to_f64() == f64_number {
         cbor_representation.push(shifted_major_type | 25);
-        for byte in (f64_number as f16).to_be_bytes() {
+        for byte in (f16_num).to_be_bytes() {
             cbor_representation.push(byte);
         }
     } else if f64::from(f64_number as f32) == f64_number {
@@ -922,7 +923,7 @@ fn decode_simple_or_floating(additional: u8, iter: &mut Iter<'_, u8>) -> Result<
         }
         25 => {
             let number_representation = u16::try_from(extract_number(additional, iter)?)?;
-            Ok(Value::Floating(f64::from(f16::from_bits(
+            Ok(Value::Floating(f64::from(half::f16::from_bits(
                 number_representation,
             ))))
         }

@@ -1,4 +1,3 @@
-#![feature(f16)]
 //! Library to handle a Concise Binary Object Representation (CBOR)
 
 /// Module containing different deterministic mode
