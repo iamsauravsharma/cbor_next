@@ -419,8 +419,8 @@ fn map_index_verification() {
         "a".into()
     );
     assert_eq!(
-        key_value_vec[Value::Array(vec![Value::from(-1)])][0],
-        "cbor".into()
+        key_value_vec[Value::Array(vec![Value::from(-1)])].get(0),
+        Some(&"cbor".into())
     );
 
     assert!(key_value_vec.get(Value::from(122)).is_none());

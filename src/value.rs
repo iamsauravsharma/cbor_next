@@ -244,72 +244,152 @@ where
 
 impl Value {
     /// Is a unsigned integer value?
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(Value::Unsigned(20).is_unsigned_integer());
+    /// ```
     #[must_use]
     pub fn is_unsigned_integer(&self) -> bool {
         matches!(self, Self::Unsigned(_))
     }
 
     /// Is a signed integer value?
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(Value::from(-32).is_signed_integer());
+    /// ```
     #[must_use]
     pub fn is_signed_integer(&self) -> bool {
         matches!(self, Self::Signed(_))
     }
 
     /// Is a byte value?
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(Value::Byte(vec![65, 63, 62]).is_byte());
+    /// ```
     #[must_use]
     pub fn is_byte(&self) -> bool {
         matches!(self, Self::Byte(_))
     }
 
     /// Is a text value?
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(Value::Text("example".to_string()).is_text());
+    /// ```
     #[must_use]
     pub fn is_text(&self) -> bool {
         matches!(self, Self::Text(_))
     }
 
     /// Is a array value?
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(Value::Array(vec![12.into()]).is_array());
+    /// ```
     #[must_use]
     pub fn is_array(&self) -> bool {
         matches!(self, Self::Array(_))
     }
 
     /// Is a map value?
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    /// use indexmap::IndexMap;
+    ///
+    /// assert!(Value::Map(IndexMap::new()).is_map());
+    /// ```
     #[must_use]
     pub fn is_map(&self) -> bool {
         matches!(self, Self::Map(_))
     }
 
     /// Is a tag value?
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(Value::Tag(12, Box::new(Value::Unsigned(20))).is_tag());
+    /// ```
     #[must_use]
     pub fn is_tag(&self) -> bool {
         matches!(self, Self::Tag(_, _))
     }
 
     /// Is a boolean value?
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(Value::Boolean(false).is_boolean());
+    /// ```
     #[must_use]
     pub fn is_boolean(&self) -> bool {
         matches!(self, Self::Boolean(_))
     }
 
     /// Is a null value?
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(Value::Null.is_null());
+    /// ```
     #[must_use]
     pub fn is_null(&self) -> bool {
         matches!(self, Self::Null)
     }
 
     /// Is a undefined value?
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(Value::Undefined.is_undefined());
+    /// ```
     #[must_use]
     pub fn is_undefined(&self) -> bool {
         matches!(self, Self::Undefined)
     }
 
     /// Is a floating value?
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(Value::Floating(3.0).is_floating());
+    /// ```
     #[must_use]
     pub fn is_floating(&self) -> bool {
         matches!(self, Self::Floating(_))
     }
 
     /// Is a simple value?
+    /// # Example
+    /// ```
+    /// use cbor_next::{SimpleNumber, Value};
+    ///
+    /// assert!(Value::UnknownSimple(SimpleNumber::try_from(45).unwrap()).is_simple());
+    /// ```
     #[must_use]
     pub fn is_simple(&self) -> bool {
         matches!(
@@ -319,12 +399,25 @@ impl Value {
     }
 
     /// Is a unknown simple value?
+    /// # Example
+    /// ```
+    /// use cbor_next::{SimpleNumber, Value};
+    ///
+    /// assert!(Value::UnknownSimple(SimpleNumber::try_from(45).unwrap()).is_simple());
+    /// ```
     #[must_use]
     pub fn is_unknown_simple(&self) -> bool {
         matches!(self, Self::UnknownSimple(_))
     }
 
     /// Get as unsigned number
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(Value::Unsigned(20).as_unsigned().is_some());
+    /// ```
     #[must_use]
     pub fn as_unsigned(&self) -> Option<u64> {
         match self {
@@ -334,6 +427,13 @@ impl Value {
     }
 
     /// Get as signed number
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(Value::Signed(20).as_signed().is_some());
+    /// ```
     #[must_use]
     pub fn as_signed(&self) -> Option<i128> {
         match self {
@@ -343,6 +443,13 @@ impl Value {
     }
 
     /// Get as byte number
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(Value::Byte(vec![]).as_byte().is_some());
+    /// ```
     #[must_use]
     pub fn as_byte(&self) -> Option<&Vec<u8>> {
         match self {
@@ -352,6 +459,13 @@ impl Value {
     }
 
     /// Get as text number
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(Value::Text(String::new()).as_text().is_some());
+    /// ```
     #[must_use]
     pub fn as_text(&self) -> Option<&str> {
         match self {
@@ -361,6 +475,13 @@ impl Value {
     }
 
     /// Get as array number
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(Value::Array(vec![]).as_array().is_some());
+    /// ```
     #[must_use]
     pub fn as_array(&self) -> Option<&Vec<Value>> {
         match self {
@@ -370,6 +491,14 @@ impl Value {
     }
 
     /// Get as map number
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    /// use indexmap::IndexMap;
+    ///
+    /// assert!(Value::Map(IndexMap::new()).as_map().is_some());
+    /// ```
     #[must_use]
     pub fn as_map(&self) -> Option<&IndexMap<Value, Value>> {
         match self {
@@ -379,6 +508,17 @@ impl Value {
     }
 
     /// Get as tag number
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(
+    ///     Value::Tag(20, Box::new(Value::Signed(20)))
+    ///         .as_tag()
+    ///         .is_some()
+    /// );
+    /// ```
     #[must_use]
     pub fn as_tag(&self) -> Option<(&u64, &Value)> {
         match self {
@@ -388,6 +528,13 @@ impl Value {
     }
 
     /// Get as boolean number
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(Value::Boolean(true).as_boolean().is_some());
+    /// ```
     #[must_use]
     pub fn as_boolean(&self) -> Option<bool> {
         match self {
@@ -397,6 +544,13 @@ impl Value {
     }
 
     /// Get as floating number
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::Value;
+    ///
+    /// assert!(Value::Floating(-20.0).as_floating().is_some());
+    /// ```
     #[must_use]
     pub fn as_floating(&self) -> Option<f64> {
         match self {
@@ -406,6 +560,17 @@ impl Value {
     }
 
     /// Get as simple index value
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::{SimpleNumber, Value};
+    ///
+    /// assert!(
+    ///     Value::UnknownSimple(SimpleNumber::try_from(10).unwrap())
+    ///         .as_simple()
+    ///         .is_some()
+    /// );
+    /// ```
     #[must_use]
     pub fn as_simple(&self) -> Option<u8> {
         match self {
@@ -438,6 +603,15 @@ impl Value {
     }
 
     /// Get a CBOR encoded representation of value
+    ///
+    /// # Example
+    /// ```rust
+    /// use cbor_next::Value;
+    ///
+    /// let value = Value::Unsigned(10_000_000);
+    /// let vector_data = vec![0x1a, 0x00, 0x98, 0x96, 0x80];
+    /// assert_eq!(value.encode(), vector_data);
+    /// ```
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         match self {
@@ -502,6 +676,15 @@ impl Value {
     }
 
     /// Decode a CBOR representation to a value
+    ///
+    /// # Example
+    /// ```rust
+    /// use cbor_next::Value;
+    ///
+    /// let vector_data = vec![0x1a, 0x00, 0x98, 0x96, 0x80];
+    /// let value = Value::Unsigned(10_000_000);
+    /// assert_eq!(Value::decode(&vector_data).unwrap(), value);
+    /// ```
     ///
     /// # Errors
     /// If provided bytes cannot be converted to CBOR

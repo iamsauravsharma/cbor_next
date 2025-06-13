@@ -16,5 +16,10 @@ pub mod simple_number;
 /// Module containing a value
 pub mod value;
 
+pub use deterministic::DeterministicMode;
+pub use index::Get;
+pub use simple_number::SimpleNumber;
+pub use value::Value;
+
 #[cfg(test)]
 mod tests;
