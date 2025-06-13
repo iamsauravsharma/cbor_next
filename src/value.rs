@@ -7,33 +7,7 @@ use indexmap::IndexMap;
 
 use crate::deterministic::DeterministicMode;
 use crate::error::Error;
-
-#[cfg(test)]
-mod tests;
-
-/// struct representing simple number which only allow number between 0-19 and
-/// 32 -255
-#[derive(PartialEq, Debug, Hash, Clone)]
-pub struct SimpleNumber(u8);
-
-impl SimpleNumber {
-    /// Create new simple number
-    ///
-    /// # Errors
-    /// If num is between 20-32
-    pub fn new(num: u8) -> Result<Self, Error> {
-        match num {
-            0..=19 | 32..=u8::MAX => Ok(Self(num)),
-            _ => Err(Error::InvalidSimple),
-        }
-    }
-
-    /// Get internal number value
-    #[must_use]
-    pub fn val(&self) -> u8 {
-        self.0
-    }
-}
+use crate::simple_number::SimpleNumber;
 
 /// Enum representing different types of values that can be encoded or decoded
 /// in `CBOR` (Concise Binary Object Representation).
@@ -517,11 +491,11 @@ impl Value {
             Value::Null => vec![self.major_type() << 5 | 22],
             Value::Undefined => vec![self.major_type() << 5 | 23],
             Value::Floating(number) => encode_f64_number(self.major_type(), *number),
-            Value::UnknownSimple(SimpleNumber(simple_number)) => {
-                if *simple_number <= 23 {
-                    vec![self.major_type() << 5 | simple_number]
+            Value::UnknownSimple(simple_number) => {
+                if **simple_number <= 23 {
+                    vec![self.major_type() << 5 | **simple_number]
                 } else {
-                    vec![self.major_type() << 5 | 24, *simple_number]
+                    vec![self.major_type() << 5 | 24, **simple_number]
                 }
             }
         }
@@ -724,8 +698,10 @@ fn decode_map(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
         for _ in 0..num {
             let key = decode_value(iter)?;
             let val = decode_value(iter)?;
-            if map_index_map.insert(key, val).is_some() {
-                return Err(Error::NotWellFormed);
+            if map_index_map.insert(key.clone(), val).is_some() {
+                return Err(Error::NotWellFormed(format!(
+                    "same map key {key:#?} is repeated multiple times"
+                )));
             }
         }
     } else {
@@ -745,7 +721,7 @@ fn decode_map(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
 
 fn decode_simple_or_floating(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
     match additional {
-        0..=19 => Ok(Value::UnknownSimple(SimpleNumber::new(additional)?)),
+        0..=19 => Ok(Value::UnknownSimple(additional.try_into()?)),
         20 => Ok(Value::Boolean(false)),
         21 => Ok(Value::Boolean(true)),
         22 => Ok(Value::Null),
@@ -755,7 +731,7 @@ fn decode_simple_or_floating(additional: u8, iter: &mut Iter<'_, u8>) -> Result<
                 if *next_num < 32 {
                     Err(Error::InvalidSimple)
                 } else {
-                    Ok(Value::UnknownSimple(SimpleNumber::new(*next_num)?))
+                    Ok(Value::UnknownSimple((*next_num).try_into()?))
                 }
             } else {
                 Err(Error::InvalidSimple)
@@ -777,7 +753,11 @@ fn decode_simple_or_floating(additional: u8, iter: &mut Iter<'_, u8>) -> Result<
             let f64_number_representation = extract_number(additional, iter)?;
             Ok(Value::Floating(f64::from_bits(f64_number_representation)))
         }
-        28..=30 => Err(Error::NotWellFormed),
+        28..=30 => {
+            Err(Error::NotWellFormed(format!(
+                "invalid value {additional} for major type 7"
+            )))
+        }
         31 => Err(Error::LonelyBreakStop),
         _ => unreachable!("Cannot have additional info value greater than 31"),
     }
@@ -790,7 +770,11 @@ fn decode_vec_u8(major_type: u8, iter: &mut Iter<'_, u8>) -> Result<Vec<u8>, Err
     {
         let val = decode_value(iter)?;
         if val.major_type() != major_type {
-            return Err(Error::NotWellFormed);
+            return Err(Error::NotWellFormed(format!(
+                "contains invalid major type {} for indefinite major type {}",
+                val.major_type(),
+                major_type
+            )));
         }
         match val {
             Value::Byte(mut byte) => result.append(&mut byte),
@@ -820,8 +804,10 @@ fn extract_map_item(iter: &mut Iter<'_, u8>) -> Result<IndexMap<Value, Value>, E
     {
         let key = decode_value(iter)?;
         let val = decode_value(iter)?;
-        if result.insert(key, val).is_some() {
-            return Err(Error::NotWellFormed);
+        if result.insert(key.clone(), val).is_some() {
+            return Err(Error::NotWellFormed(format!(
+                "same map key {key:#?} is repeated multiple times"
+            )));
         }
         result.extend(extract_map_item(iter)?);
     }
@@ -831,10 +817,15 @@ fn extract_map_item(iter: &mut Iter<'_, u8>) -> Result<IndexMap<Value, Value>, E
 
 fn collect_vec_u8(iter: &mut Iter<'_, u8>, number: u64) -> Result<Vec<u8>, Error> {
     let mut collected_val = Vec::new();
-    for _ in 0..number {
+    for i in 0..number {
         match iter.next() {
             Some(item) => collected_val.push(*item),
-            None => return Err(Error::NotWellFormed),
+            None => {
+                return Err(Error::NotWellFormed(format!(
+                    "incomplete array of byte missing {} byte",
+                    number - i
+                )));
+            }
         }
     }
     Ok(collected_val)
@@ -850,12 +841,17 @@ fn extract_optional_number(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Op
             array[8 - len..].copy_from_slice(&number_bytes[..len]);
             Ok(Some(u64::from_be_bytes(array)))
         }
-        28..=30 => Err(Error::NotWellFormed),
+        28..=30 => {
+            Err(Error::NotWellFormed(format!(
+                "invalid additional number {additional}"
+            )))
+        }
         31 => Ok(None),
         _ => unreachable!("Cannot have additional info value greater than 31"),
     }
 }
 
 fn extract_number(additional: u8, iter: &mut Iter<'_, u8>) -> Result<u64, Error> {
-    extract_optional_number(additional, iter)?.ok_or(Error::NotWellFormed)
+    extract_optional_number(additional, iter)?
+        .ok_or(Error::NotWellFormed("failed to extract number".to_string()))
 }

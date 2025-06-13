@@ -4,8 +4,8 @@ use std::vec;
 use indexmap::IndexMap;
 use rand::seq::SliceRandom;
 
-use super::SimpleNumber;
 use crate::deterministic::DeterministicMode;
+use crate::error::Error;
 use crate::value::Value;
 
 fn encode_compare<I>(hex_cbor: &str, value_into: I)
@@ -99,12 +99,9 @@ fn simple() {
     compare_cbor_value("f5", true);
     compare_cbor_value("f6", Value::Null);
     compare_cbor_value("f7", Value::Undefined);
-    compare_cbor_value("f0", Value::UnknownSimple(SimpleNumber::new(16).unwrap()));
-    compare_cbor_value("f820", Value::UnknownSimple(SimpleNumber::new(32).unwrap()));
-    compare_cbor_value(
-        "f8ff",
-        Value::UnknownSimple(SimpleNumber::new(255).unwrap()),
-    );
+    compare_cbor_value("f0", Value::UnknownSimple(16.try_into().unwrap()));
+    compare_cbor_value("f820", Value::UnknownSimple(32.try_into().unwrap()));
+    compare_cbor_value("f8ff", Value::UnknownSimple(255.try_into().unwrap()));
 }
 
 #[test]
@@ -240,29 +237,96 @@ fn map() {
 
 #[test]
 fn failure() {
-    assert!(Value::decode(&hex::decode("1c").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("7f14").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("f801").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("9fde").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("bf3e").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("7fbb").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("dc").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("7f42").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("5f87").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("3f").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("5d").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("bc").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("5f4100").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("5fc000ff").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("9f819f819f9fffffff").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("9f829f819f9fffffffff").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("1a0102").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("5affffffff00").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("bf000000ff").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("a2000000").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("5fd9").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("bffc").unwrap()).is_err());
-    assert!(Value::decode(&hex::decode("ff").unwrap()).is_err());
+    assert_eq!(
+        Value::decode(&hex::decode("1c").unwrap()),
+        Err(Error::NotWellFormed(
+            "invalid additional number 28".to_string()
+        ))
+    );
+    assert_eq!(
+        Value::decode(&hex::decode("7f14").unwrap()),
+        Err(Error::NotWellFormed(
+            "contains invalid major type 0 for indefinite major type 3".to_string()
+        ))
+    );
+    assert_eq!(
+        Value::decode(&hex::decode("f801").unwrap()),
+        Err(Error::InvalidSimple)
+    );
+    assert_eq!(
+        Value::decode(&hex::decode("9fde").unwrap()),
+        Err(Error::NotWellFormed(
+            "invalid additional number 30".to_string()
+        ))
+    );
+    assert_eq!(
+        Value::decode(&hex::decode("bf3e").unwrap()),
+        Err(Error::NotWellFormed(
+            "invalid additional number 30".to_string()
+        ))
+    );
+    assert_eq!(
+        Value::decode(&hex::decode("dd").unwrap()),
+        Err(Error::NotWellFormed(
+            "invalid additional number 29".to_string()
+        ))
+    );
+    assert_eq!(
+        Value::decode(&hex::decode("5f87").unwrap()),
+        Err(Error::Empty)
+    );
+    assert_eq!(
+        Value::decode(&hex::decode("3f").unwrap()),
+        Err(Error::NotWellFormed("failed to extract number".to_string()))
+    );
+    assert_eq!(
+        Value::decode(&hex::decode("5f4100").unwrap()),
+        Err(Error::IncompleteIndefinite)
+    );
+    assert_eq!(
+        Value::decode(&hex::decode("5fc000ff").unwrap()),
+        Err(Error::NotWellFormed(
+            "contains invalid major type 6 for indefinite major type 2".to_string()
+        ))
+    );
+    assert_eq!(
+        Value::decode(&hex::decode("9f819f819f9fffffff").unwrap()),
+        Err(Error::IncompleteIndefinite)
+    );
+    assert_eq!(
+        Value::decode(&hex::decode("9f829f819f9fffffffff").unwrap()),
+        Err(Error::LonelyBreakStop)
+    );
+    assert_eq!(
+        Value::decode(&hex::decode("1a0102").unwrap()),
+        Err(Error::NotWellFormed(
+            "incomplete array of byte missing 2 byte".to_string()
+        ))
+    );
+    assert_eq!(
+        Value::decode(&hex::decode("5affffffff00").unwrap()),
+        Err(Error::NotWellFormed(
+            "incomplete array of byte missing 4294967294 byte".to_string()
+        ))
+    );
+    assert_eq!(
+        Value::decode(&hex::decode("bf000000ff").unwrap()),
+        Err(Error::LonelyBreakStop)
+    );
+    assert_eq!(
+        Value::decode(&hex::decode("a2000000").unwrap()),
+        Err(Error::Empty)
+    );
+    assert_eq!(
+        Value::decode(&hex::decode("bffc").unwrap()),
+        Err(Error::NotWellFormed(
+            "invalid value 28 for major type 7".to_string()
+        ))
+    );
+    assert_eq!(
+        Value::decode(&hex::decode("ff").unwrap()),
+        Err(Error::LonelyBreakStop)
+    );
 }
 
 #[test]

@@ -1,5 +1,5 @@
 /// Enum representing error for a crate
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, PartialEq, Eq, Debug)]
 #[non_exhaustive]
 pub enum Error {
     /// Empty CBOR bytes
@@ -19,7 +19,7 @@ pub enum Error {
     FromInt(#[from] std::num::TryFromIntError),
     /// Not well formed data
     #[error("not well formed data")]
-    NotWellFormed,
+    NotWellFormed(String),
     /// Break stop without using indefinite length
     #[error("break stop cannot be by itself")]
     LonelyBreakStop,
