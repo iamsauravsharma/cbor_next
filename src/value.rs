@@ -949,53 +949,55 @@ fn decode_simple_or_floating(additional: u8, iter: &mut Iter<'_, u8>) -> Result<
 
 fn decode_vec_u8(major_type: u8, iter: &mut Iter<'_, u8>) -> Result<Vec<u8>, Error> {
     let mut result = vec![];
-    if let Some(peek_val) = iter.clone().next()
-        && peek_val != &255
-    {
-        let val = decode_value(iter)?;
-        if val.major_type() != major_type {
-            return Err(Error::NotWellFormed(format!(
-                "contains invalid major type {} for indefinite major type {}",
-                val.major_type(),
-                major_type
-            )));
+    #[expect(clippy::collapsible_if, reason = "not supported in stable version")]
+    if let Some(peek_val) = iter.clone().next() {
+        if *peek_val != 255 {
+            let val = decode_value(iter)?;
+            if val.major_type() != major_type {
+                return Err(Error::NotWellFormed(format!(
+                    "contains invalid major type {} for indefinite major type {}",
+                    val.major_type(),
+                    major_type
+                )));
+            }
+            match val {
+                Value::Byte(mut byte) => result.append(&mut byte),
+                Value::Text(text) => result.append(&mut text.as_bytes().to_vec()),
+                _ => unreachable!("only text and byte calls this function"),
+            }
+            result.append(&mut decode_vec_u8(major_type, iter)?);
         }
-        match val {
-            Value::Byte(mut byte) => result.append(&mut byte),
-            Value::Text(text) => result.append(&mut text.as_bytes().to_vec()),
-            _ => unreachable!("only text and byte calls this function"),
-        }
-        result.append(&mut decode_vec_u8(major_type, iter)?);
     }
     Ok(result)
 }
 
 fn extract_array_item(iter: &mut Iter<'_, u8>) -> Result<Vec<Value>, Error> {
     let mut result = vec![];
-    if let Some(peek_val) = iter.clone().next()
-        && peek_val != &255
-    {
-        result.push(decode_value(iter)?);
-        result.append(&mut extract_array_item(iter)?);
+    #[expect(clippy::collapsible_if, reason = "not supported in stable version")]
+    if let Some(peek_val) = iter.clone().next() {
+        if *peek_val != 255 {
+            result.push(decode_value(iter)?);
+            result.append(&mut extract_array_item(iter)?);
+        }
     }
     Ok(result)
 }
 
 fn extract_map_item(iter: &mut Iter<'_, u8>) -> Result<IndexMap<Value, Value>, Error> {
     let mut result = IndexMap::new();
-    if let Some(peek_val) = iter.clone().next()
-        && peek_val != &255
-    {
-        let key = decode_value(iter)?;
-        let val = decode_value(iter)?;
-        if result.insert(key.clone(), val).is_some() {
-            return Err(Error::NotWellFormed(format!(
-                "same map key {key:#?} is repeated multiple times"
-            )));
+    #[expect(clippy::collapsible_if, reason = "not supported in stable version")]
+    if let Some(peek_val) = iter.clone().next() {
+        if *peek_val != 255 {
+            let key = decode_value(iter)?;
+            let val = decode_value(iter)?;
+            if result.insert(key.clone(), val).is_some() {
+                return Err(Error::NotWellFormed(format!(
+                    "same map key {key:#?} is repeated multiple times"
+                )));
+            }
+            result.extend(extract_map_item(iter)?);
         }
-        result.extend(extract_map_item(iter)?);
     }
-
     Ok(result)
 }
 
