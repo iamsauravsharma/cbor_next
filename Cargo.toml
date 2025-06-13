@@ -19,6 +19,10 @@ thiserror = "2.0.12"
 hex = "0.4.3"
 rand = "0.9.1"
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [lints.rust]
 missing_docs = "warn"
 unreachable_pub = "warn"
