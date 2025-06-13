@@ -6,6 +6,7 @@ use rand::seq::SliceRandom;
 
 use crate::deterministic::DeterministicMode;
 use crate::error::Error;
+use crate::index::Get;
 use crate::value::Value;
 
 fn encode_compare<I>(hex_cbor: &str, value_into: I)
@@ -387,4 +388,50 @@ fn length_core_deterministic() {
     let map_val = Value::Map(IndexMap::from_iter(random_key_value))
         .deterministic(&DeterministicMode::LengthFirst);
     assert_eq!(Value::Map(IndexMap::from_iter(key_value_vec)), map_val);
+}
+
+#[test]
+fn map_index_verification() {
+    let key_value_vec = Value::Map(IndexMap::from_iter(vec![
+        (10.into(), "abc".into()),
+        (100.into(), "1020".into()),
+        (Value::from(-1), 12.into()),
+        (Value::from("z"), "a".into()),
+        (Value::from("aa"), Value::from(-1)),
+        (
+            Value::Array(vec![100.into()]),
+            Value::Map(IndexMap::from_iter(vec![
+                (1_000_000.into(), "1020".into()),
+                (Value::from("z"), "a".into()),
+                (Value::from("aa"), 12.into()),
+            ])),
+        ),
+        (
+            Value::Array(vec![Value::from(-1)]),
+            Value::Array(vec!["cbor".into(), "nano".into()]),
+        ),
+        (false.into(), 12.into()),
+    ]));
+    assert_eq!(key_value_vec[Value::from(10)], "abc".into());
+    assert_eq!(key_value_vec[Value::from(-1)], 12.into());
+    assert_eq!(
+        key_value_vec[Value::Array(vec![100.into()])][Value::from("z")],
+        "a".into()
+    );
+    assert_eq!(
+        key_value_vec[Value::Array(vec![Value::from(-1)])][0],
+        "cbor".into()
+    );
+
+    assert!(key_value_vec.get(Value::from(122)).is_none());
+    assert!(
+        key_value_vec[Value::Array(vec![100.into()])]
+            .get(Value::from("y"))
+            .is_none()
+    );
+    assert!(
+        key_value_vec[Value::Array(vec![Value::from(-1)])]
+            .get(20)
+            .is_none()
+    );
 }

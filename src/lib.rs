@@ -7,6 +7,9 @@ pub mod deterministic;
 /// Module containing different type of error
 pub mod error;
 
+/// Module for index
+pub mod index;
+
 /// Module for simple number
 pub mod simple_number;
 
