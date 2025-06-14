@@ -23,22 +23,22 @@ cbor_next = "0.1.1"
 
 ## Usage
 
-Main building block of library is `Value` Enum which represent a different type CBOR value
+Main building block of library is `DataItem` Enum which represent a different type CBOR data item
 
 ### Encoding
 ```rust
-use cbor_next::Value;
-let value = Value::Unsigned(10_000_000);
+use cbor_next::DataItem;
+let value = DataItem::Unsigned(10_000_000);
 let vector_data = vec![0x1a, 0x00, 0x98, 0x96, 0x80];
 assert_eq!(value.encode(), vector_data);
 ```
 
 ### Decoding
 ```rust
-use cbor_next::Value;
+use cbor_next::DataItem;
 let vector_data = vec![0x1a, 0x00, 0x98, 0x96, 0x80];
-let value = Value::Unsigned(10_000_000);
-assert_eq!(Value::decode(&vector_data).unwrap(), value);
+let value = DataItem::Unsigned(10_000_000);
+assert_eq!(DataItem::decode(&vector_data).unwrap(), value);
 ```
 
 For other usage check out docs `Value` enum and its methods and functions

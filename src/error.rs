@@ -2,9 +2,9 @@
 #[derive(thiserror::Error, PartialEq, Eq, Debug)]
 #[non_exhaustive]
 pub enum Error {
-    /// Empty CBOR bytes
-    #[error("CBOR bytes cannot be empty")]
-    Empty,
+    /// Incomplete CBOR bytes
+    #[error("Incomplete CBOR bytes")]
+    Incomplete,
     /// Error generated when converted string from utf8 bytes
     #[error(transparent)]
     FromUtf8(#[from] std::string::FromUtf8Error),
@@ -20,7 +20,7 @@ pub enum Error {
     /// Not well formed data
     #[error("not well formed data")]
     NotWellFormed(String),
-    /// Break stop without using indefinite length
-    #[error("break stop cannot be by itself")]
-    LonelyBreakStop,
+    /// Invalid break stop position
+    #[error("break stop position is invalid")]
+    InvalidBreakStop,
 }

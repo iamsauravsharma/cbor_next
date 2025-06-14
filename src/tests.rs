@@ -4,14 +4,14 @@ use std::vec;
 use indexmap::IndexMap;
 use rand::seq::SliceRandom;
 
+use crate::data_item::DataItem;
 use crate::deterministic::DeterministicMode;
 use crate::error::Error;
 use crate::index::Get;
-use crate::value::Value;
 
 fn encode_compare<I>(hex_cbor: &str, value_into: I)
 where
-    I: Into<Value>,
+    I: Into<DataItem>,
 {
     let value = value_into.into();
     let vec_u8_cbor =
@@ -22,27 +22,28 @@ where
 
 fn decode_compare<I>(hex_cbor: &str, value_into: I)
 where
-    I: Into<Value>,
+    I: Into<DataItem>,
 {
     let value = value_into.into();
     let vec_u8_cbor =
         hex::decode(hex_cbor).unwrap_or_else(|_| panic!(" failed to decode hex {hex_cbor}"));
-    let cbor_to_value = Value::decode(&vec_u8_cbor).unwrap_or_else(|err: crate::error::Error| {
-        panic!("{err} failed to decode value {hex_cbor}")
-    });
+    let cbor_to_value =
+        DataItem::decode(&vec_u8_cbor).unwrap_or_else(|err: crate::error::Error| {
+            panic!("{err} failed to decode value {hex_cbor}")
+        });
     assert_eq!(&cbor_to_value, &value, "{hex_cbor}");
 }
 
 fn compare_cbor_value<I>(hex_cbor: &str, value_into: I)
 where
-    I: Into<Value>,
+    I: Into<DataItem>,
 {
     let value = value_into.into();
     let vec_u8_cbor =
         hex::decode(hex_cbor).unwrap_or_else(|err| panic!("{err} failed to decode hex {hex_cbor}"));
     let value_to_cbor = value.encode();
     assert_eq!(value_to_cbor, vec_u8_cbor, "{hex_cbor}");
-    let cbor_to_value = Value::decode(&vec_u8_cbor)
+    let cbor_to_value = DataItem::decode(&vec_u8_cbor)
         .unwrap_or_else(|err| panic!("{err} failed to decode value {hex_cbor}"));
     assert_eq!(&cbor_to_value, &value, "{hex_cbor}");
 }
@@ -62,7 +63,7 @@ fn integer() {
     compare_cbor_value("1bffffffffffffffff", 18_446_744_073_709_551_615u64);
     compare_cbor_value(
         "3bffffffffffffffff",
-        Value::try_from(-18_446_744_073_709_551_616_i128).unwrap(),
+        DataItem::try_from(-18_446_744_073_709_551_616_i128).unwrap(),
     );
     compare_cbor_value("20", -1);
     compare_cbor_value("29", -10);
@@ -98,48 +99,48 @@ fn float() {
 fn simple() {
     compare_cbor_value("f4", false);
     compare_cbor_value("f5", true);
-    compare_cbor_value("f6", Value::Null);
-    compare_cbor_value("f7", Value::Undefined);
-    compare_cbor_value("f0", Value::UnknownSimple(16.try_into().unwrap()));
-    compare_cbor_value("f820", Value::UnknownSimple(32.try_into().unwrap()));
-    compare_cbor_value("f8ff", Value::UnknownSimple(255.try_into().unwrap()));
+    compare_cbor_value("f6", DataItem::Null);
+    compare_cbor_value("f7", DataItem::Undefined);
+    compare_cbor_value("f0", DataItem::GenericSimple(16.try_into().unwrap()));
+    compare_cbor_value("f820", DataItem::GenericSimple(32.try_into().unwrap()));
+    compare_cbor_value("f8ff", DataItem::GenericSimple(255.try_into().unwrap()));
 }
 
 #[test]
 fn tag() {
     compare_cbor_value(
         "c074323031332d30332d32315432303a30343a30305a",
-        Value::Tag(0, Box::new("2013-03-21T20:04:00Z".into())),
+        DataItem::Tag(0, Box::new("2013-03-21T20:04:00Z".into())),
     );
     compare_cbor_value(
         "c074323031332d30332d32315432303a30343a30305a",
-        Value::Tag(0, Box::new("2013-03-21T20:04:00Z".into())),
+        DataItem::Tag(0, Box::new("2013-03-21T20:04:00Z".into())),
     );
     compare_cbor_value(
         "c11a514b67b0",
-        Value::Tag(1, Box::new(1_363_896_240.into())),
+        DataItem::Tag(1, Box::new(1_363_896_240.into())),
     );
     compare_cbor_value(
         "c1fb41d452d9ec200000",
-        Value::Tag(1, Box::new(1_363_896_240.5.into())),
+        DataItem::Tag(1, Box::new(1_363_896_240.5.into())),
     );
     compare_cbor_value(
         "d74401020304",
-        Value::Tag(
+        DataItem::Tag(
             23,
             Box::new(hex::decode("01020304").unwrap().as_slice().into()),
         ),
     );
     compare_cbor_value(
         "d818456449455446",
-        Value::Tag(
+        DataItem::Tag(
             24,
             Box::new(hex::decode("6449455446").unwrap().as_slice().into()),
         ),
     );
     compare_cbor_value(
         "d82076687474703a2f2f7777772e6578616d706c652e636f6d",
-        Value::Tag(32, Box::new("http://www.example.com".into())),
+        DataItem::Tag(32, Box::new("http://www.example.com".into())),
     );
 }
 
@@ -169,7 +170,7 @@ fn text() {
 fn array() {
     compare_cbor_value("80", Vec::<u64>::new());
     compare_cbor_value("83010203", vec![1u64, 2, 3]);
-    compare_cbor_value::<Vec<Value>>(
+    compare_cbor_value::<Vec<DataItem>>(
         "8301820203820405",
         vec![1u64.into(), vec![2u64, 3].into(), vec![4u64, 5u64].into()],
     );
@@ -180,24 +181,24 @@ fn array() {
             24, 25,
         ],
     );
-    compare_cbor_value::<Vec<Value>>(
+    compare_cbor_value::<Vec<DataItem>>(
         "826161a161626163",
         vec!["a".into(), vec![("b", "c")].into()],
     );
     decode_compare("9fff", Vec::<u64>::new());
-    decode_compare::<Vec<Value>>(
+    decode_compare::<Vec<DataItem>>(
         "9f018202039f0405ffff",
         vec![1u64.into(), vec![2u64, 3].into(), vec![4u64, 5u64].into()],
     );
-    decode_compare::<Vec<Value>>(
+    decode_compare::<Vec<DataItem>>(
         "9f01820203820405ff",
         vec![1u64.into(), vec![2u64, 3].into(), vec![4u64, 5u64].into()],
     );
-    decode_compare::<Vec<Value>>(
+    decode_compare::<Vec<DataItem>>(
         "83018202039f0405ff",
         vec![1u64.into(), vec![2u64, 3].into(), vec![4u64, 5u64].into()],
     );
-    decode_compare::<Vec<Value>>(
+    decode_compare::<Vec<DataItem>>(
         "83019f0203ff820405",
         vec![1u64.into(), vec![2u64, 3].into(), vec![4u64, 5u64].into()],
     );
@@ -208,7 +209,7 @@ fn array() {
             24, 25,
         ],
     );
-    decode_compare::<Vec<Value>>(
+    decode_compare::<Vec<DataItem>>(
         "826161bf61626163ff",
         vec!["a".into(), vec![("b", "c")].into()],
     );
@@ -216,11 +217,11 @@ fn array() {
 
 #[test]
 fn map() {
-    compare_cbor_value("a0", Value::Map(IndexMap::new()));
+    compare_cbor_value("a0", DataItem::Map(IndexMap::new()));
     compare_cbor_value("a201020304", vec![(1, 2), (3, 4)]);
     compare_cbor_value(
         "a26161016162820203",
-        vec![("a", Value::from(1)), ("b", vec![2u64, 3].into())],
+        vec![("a", DataItem::from(1)), ("b", vec![2u64, 3].into())],
     );
     compare_cbor_value(
         "a56161614161626142616361436164614461656145",
@@ -228,105 +229,107 @@ fn map() {
     );
     decode_compare(
         "bf61610161629f0203ffff",
-        vec![("a", Value::from(1)), ("b", vec![2u64, 3].into())],
+        vec![("a", DataItem::from(1)), ("b", vec![2u64, 3].into())],
     );
     decode_compare(
         "bf6346756ef563416d7421ff",
-        vec![("Fun", Value::from(true)), ("Amt", Value::from(-2))],
+        vec![("Fun", DataItem::from(true)), ("Amt", DataItem::from(-2))],
     );
 }
 
 #[test]
 fn failure() {
     assert_eq!(
-        Value::decode(&hex::decode("1c").unwrap()),
+        DataItem::decode(&hex::decode("1c").unwrap()),
         Err(Error::NotWellFormed(
             "invalid additional number 28".to_string()
         ))
     );
     assert_eq!(
-        Value::decode(&hex::decode("7f14").unwrap()),
+        DataItem::decode(&hex::decode("7f14").unwrap()),
         Err(Error::NotWellFormed(
             "contains invalid major type 0 for indefinite major type 3".to_string()
         ))
     );
     assert_eq!(
-        Value::decode(&hex::decode("f801").unwrap()),
+        DataItem::decode(&hex::decode("f801").unwrap()),
         Err(Error::InvalidSimple)
     );
     assert_eq!(
-        Value::decode(&hex::decode("9fde").unwrap()),
+        DataItem::decode(&hex::decode("9fde").unwrap()),
         Err(Error::NotWellFormed(
             "invalid additional number 30".to_string()
         ))
     );
     assert_eq!(
-        Value::decode(&hex::decode("bf3e").unwrap()),
+        DataItem::decode(&hex::decode("bf3e").unwrap()),
         Err(Error::NotWellFormed(
             "invalid additional number 30".to_string()
         ))
     );
     assert_eq!(
-        Value::decode(&hex::decode("dd").unwrap()),
+        DataItem::decode(&hex::decode("dd").unwrap()),
         Err(Error::NotWellFormed(
             "invalid additional number 29".to_string()
         ))
     );
     assert_eq!(
-        Value::decode(&hex::decode("5f87").unwrap()),
-        Err(Error::Empty)
+        DataItem::decode(&hex::decode("5f87").unwrap()),
+        Err(Error::NotWellFormed(
+            "contains invalid major type 4 for indefinite major type 2".to_string()
+        ))
     );
     assert_eq!(
-        Value::decode(&hex::decode("3f").unwrap()),
+        DataItem::decode(&hex::decode("3f").unwrap()),
         Err(Error::NotWellFormed("failed to extract number".to_string()))
     );
     assert_eq!(
-        Value::decode(&hex::decode("5f4100").unwrap()),
+        DataItem::decode(&hex::decode("5f4100").unwrap()),
         Err(Error::IncompleteIndefinite)
     );
     assert_eq!(
-        Value::decode(&hex::decode("5fc000ff").unwrap()),
+        DataItem::decode(&hex::decode("5fc000ff").unwrap()),
         Err(Error::NotWellFormed(
             "contains invalid major type 6 for indefinite major type 2".to_string()
         ))
     );
     assert_eq!(
-        Value::decode(&hex::decode("9f819f819f9fffffff").unwrap()),
+        DataItem::decode(&hex::decode("9f819f819f9fffffff").unwrap()),
         Err(Error::IncompleteIndefinite)
     );
     assert_eq!(
-        Value::decode(&hex::decode("9f829f819f9fffffffff").unwrap()),
-        Err(Error::LonelyBreakStop)
+        DataItem::decode(&hex::decode("9f829f819f9fffffffff").unwrap()),
+        Err(Error::InvalidBreakStop)
     );
     assert_eq!(
-        Value::decode(&hex::decode("1a0102").unwrap()),
+        DataItem::decode(&hex::decode("1a0102").unwrap()),
         Err(Error::NotWellFormed(
             "incomplete array of byte missing 2 byte".to_string()
         ))
     );
     assert_eq!(
-        Value::decode(&hex::decode("5affffffff00").unwrap()),
+        DataItem::decode(&hex::decode("5affffffff00").unwrap()),
         Err(Error::NotWellFormed(
             "incomplete array of byte missing 4294967294 byte".to_string()
         ))
     );
     assert_eq!(
-        Value::decode(&hex::decode("bf000000ff").unwrap()),
-        Err(Error::LonelyBreakStop)
+        DataItem::decode(&hex::decode("bf000000ff").unwrap()),
+        Err(Error::InvalidBreakStop)
     );
     assert_eq!(
-        Value::decode(&hex::decode("a2000000").unwrap()),
-        Err(Error::Empty)
+        DataItem::decode(&hex::decode("a2000000").unwrap()),
+        Err(Error::Incomplete)
     );
     assert_eq!(
-        Value::decode(&hex::decode("bffc").unwrap()),
+        DataItem::decode(&hex::decode("bffc").unwrap()),
         Err(Error::NotWellFormed(
             "invalid value 28 for major type 7".to_string()
         ))
     );
     assert_eq!(
-        Value::decode(&hex::decode("ff").unwrap()),
-        Err(Error::LonelyBreakStop)
+        DataItem::decode(&hex::decode("ff").unwrap()),
+        Err(Error::InvalidBreakStop)
     );
 }
 
@@ -335,29 +338,29 @@ fn core_deterministic() {
     let key_value_vec = vec![
         (10.into(), "abc".into()),
         (100.into(), "1020".into()),
-        (Value::from(-1), 12.into()),
-        (Value::from("z"), "a".into()),
-        (Value::from("aa"), Value::from(-1)),
+        (DataItem::from(-1), 12.into()),
+        (DataItem::from("z"), "a".into()),
+        (DataItem::from("aa"), DataItem::from(-1)),
         (
-            Value::Array(vec![100.into()]),
-            Value::Map(IndexMap::from_iter(vec![
+            DataItem::Array(vec![100.into()]),
+            DataItem::Map(IndexMap::from_iter(vec![
                 (1_000_000.into(), "1020".into()),
-                (Value::from("z"), "a".into()),
-                (Value::from("aa"), 12.into()),
+                (DataItem::from("z"), "a".into()),
+                (DataItem::from("aa"), 12.into()),
             ])),
         ),
         (
-            Value::Array(vec![Value::from(-1)]),
-            Value::Array(vec!["cbor".into(), "nano".into()]),
+            DataItem::Array(vec![DataItem::from(-1)]),
+            DataItem::Array(vec!["cbor".into(), "nano".into()]),
         ),
         (false.into(), 12.into()),
     ];
     let mut random_key_value = key_value_vec.clone();
     random_key_value.shuffle(&mut rand::rng());
     assert_ne!(key_value_vec, random_key_value);
-    let map_val =
-        Value::Map(IndexMap::from_iter(random_key_value)).deterministic(&DeterministicMode::Core);
-    assert_eq!(Value::Map(IndexMap::from_iter(key_value_vec)), map_val);
+    let map_val = DataItem::Map(IndexMap::from_iter(random_key_value))
+        .deterministic(&DeterministicMode::Core);
+    assert_eq!(DataItem::Map(IndexMap::from_iter(key_value_vec)), map_val);
 }
 
 #[test]
@@ -365,72 +368,72 @@ fn length_core_deterministic() {
     let key_value_vec = vec![
         (10.into(), "abc".into()),
         (100.into(), "1020".into()),
-        (Value::from(-1), 12.into()),
-        (Value::from("z"), "a".into()),
-        (Value::from("aa"), Value::from(-1)),
+        (DataItem::from(-1), 12.into()),
+        (DataItem::from("z"), "a".into()),
+        (DataItem::from("aa"), DataItem::from(-1)),
         (
-            Value::Array(vec![100.into()]),
-            Value::Map(IndexMap::from_iter(vec![
+            DataItem::Array(vec![100.into()]),
+            DataItem::Map(IndexMap::from_iter(vec![
                 (1_000_000.into(), "1020".into()),
-                (Value::from("z"), "a".into()),
-                (Value::from("aa"), 12.into()),
+                (DataItem::from("z"), "a".into()),
+                (DataItem::from("aa"), 12.into()),
             ])),
         ),
         (
-            Value::Array(vec![Value::from(-1)]),
-            Value::Array(vec!["cbor".into(), "nano".into()]),
+            DataItem::Array(vec![DataItem::from(-1)]),
+            DataItem::Array(vec!["cbor".into(), "nano".into()]),
         ),
         (false.into(), 12.into()),
     ];
     let mut random_key_value = key_value_vec.clone();
     random_key_value.shuffle(&mut rand::rng());
     assert_ne!(key_value_vec, random_key_value);
-    let map_val = Value::Map(IndexMap::from_iter(random_key_value))
+    let map_val = DataItem::Map(IndexMap::from_iter(random_key_value))
         .deterministic(&DeterministicMode::LengthFirst);
-    assert_eq!(Value::Map(IndexMap::from_iter(key_value_vec)), map_val);
+    assert_eq!(DataItem::Map(IndexMap::from_iter(key_value_vec)), map_val);
 }
 
 #[test]
 fn map_index_verification() {
-    let key_value_vec = Value::Map(IndexMap::from_iter(vec![
+    let key_value_vec = DataItem::Map(IndexMap::from_iter(vec![
         (10.into(), "abc".into()),
         (100.into(), "1020".into()),
-        (Value::from(-1), 12.into()),
-        (Value::from("z"), "a".into()),
-        (Value::from("aa"), Value::from(-1)),
+        (DataItem::from(-1), 12.into()),
+        (DataItem::from("z"), "a".into()),
+        (DataItem::from("aa"), DataItem::from(-1)),
         (
-            Value::Array(vec![100.into()]),
-            Value::Map(IndexMap::from_iter(vec![
+            DataItem::Array(vec![100.into()]),
+            DataItem::Map(IndexMap::from_iter(vec![
                 (1_000_000.into(), "1020".into()),
-                (Value::from("z"), "a".into()),
-                (Value::from("aa"), 12.into()),
+                (DataItem::from("z"), "a".into()),
+                (DataItem::from("aa"), 12.into()),
             ])),
         ),
         (
-            Value::Array(vec![Value::from(-1)]),
-            Value::Array(vec!["cbor".into(), "nano".into()]),
+            DataItem::Array(vec![DataItem::from(-1)]),
+            DataItem::Array(vec!["cbor".into(), "nano".into()]),
         ),
         (false.into(), 12.into()),
     ]));
-    assert_eq!(key_value_vec[Value::from(10)], "abc".into());
-    assert_eq!(key_value_vec[Value::from(-1)], 12.into());
+    assert_eq!(key_value_vec[DataItem::from(10)], "abc".into());
+    assert_eq!(key_value_vec[DataItem::from(-1)], 12.into());
     assert_eq!(
-        key_value_vec[Value::Array(vec![100.into()])][Value::from("z")],
+        key_value_vec[DataItem::Array(vec![100.into()])][DataItem::from("z")],
         "a".into()
     );
     assert_eq!(
-        key_value_vec[Value::Array(vec![Value::from(-1)])].get(0),
+        key_value_vec[DataItem::Array(vec![DataItem::from(-1)])].get(0),
         Some(&"cbor".into())
     );
 
-    assert!(key_value_vec.get(Value::from(122)).is_none());
+    assert!(key_value_vec.get(DataItem::from(122)).is_none());
     assert!(
-        key_value_vec[Value::Array(vec![100.into()])]
-            .get(Value::from("y"))
+        key_value_vec[DataItem::Array(vec![100.into()])]
+            .get(DataItem::from("y"))
             .is_none()
     );
     assert!(
-        key_value_vec[Value::Array(vec![Value::from(-1)])]
+        key_value_vec[DataItem::Array(vec![DataItem::from(-1)])]
             .get(20)
             .is_none()
     );

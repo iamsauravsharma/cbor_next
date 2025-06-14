@@ -9,15 +9,15 @@ use crate::deterministic::DeterministicMode;
 use crate::error::Error;
 use crate::simple_number::SimpleNumber;
 
-/// Enum representing different types of values that can be encoded or decoded
-/// in `CBOR` (Concise Binary Object Representation).
+/// Enum representing different types of data item that can be encoded or
+/// decoded in `CBOR` (Concise Binary Object Representation).
 ///
 /// `CBOR` is a data format designed for small code and message size, often used
-/// in constrained environments. This `Value` enum covers all major types
+/// in constrained environments. This `DataItem` enum covers all major types
 /// defined in the `CBOR` specification (RFC 8949).
 #[derive(PartialEq, Debug, Clone)]
 #[non_exhaustive]
-pub enum Value {
+pub enum DataItem {
     /// Unsigned integer represented by `CBOR` major type 0.
     ///
     /// This variant can hold non-negative integer values up to `u64::MAX`.
@@ -37,30 +37,30 @@ pub enum Value {
     ///
     /// Contains a sequence of Unicode characters encoded as UTF-8.
     Text(String),
-    /// Array of `CBOR` values represented by `CBOR` major type 4.
+    /// Array of `CBOR` data items represented by `CBOR` major type 4.
     ///
     /// An ordered sequence of zero or more `CBOR` data items.
-    Array(Vec<Value>),
+    Array(Vec<DataItem>),
     /// Map of `CBOR` key-value pairs represented by `CBOR` major type 5.
     ///
     /// Keys within a map must be unique
-    Map(IndexMap<Value, Value>),
+    Map(IndexMap<DataItem, DataItem>),
     /// Tagged item (semantic tag) represented by `CBOR` major type 6.
     ///
     /// Consists of an unsigned integer (the tag) and a single `CBOR` data item
     /// (the tagged content). Tags provide semantic information about the
     /// enclosed data item, allowing for type extension
     /// or application-specific interpretations.
-    Tag(u64, Box<Value>),
-    /// Boolean value represented as a simple value within `CBOR` major type 7.
+    Tag(u64, Box<DataItem>),
+    /// Boolean represented as a simple value within `CBOR` major type 7.
     ///
     /// Can be either `true` or `false`.
     Boolean(bool),
-    /// Null value represented as a simple value within `CBOR` major type 7.
+    /// Null represented as a simple value within `CBOR` major type 7.
     ///
     /// Represents the absence of a value.
     Null,
-    /// Undefined value represented as a simple value within `CBOR` major type
+    /// Undefined represented as a simple value within `CBOR` major type
     /// 7.
     ///
     /// Distinct from `Null`, it represents an undefined state.
@@ -72,55 +72,55 @@ pub enum Value {
     /// double-precision (64-bit) floating-point numbers. but locally saves
     /// data as f64
     Floating(f64),
-    /// An unknown simple value represented by `CBOR` major type 7.
+    /// An generic simple value represented by `CBOR` major type 7.
     ///
     /// This variant handles simple values that are not explicitly covered by
-    /// `Boolean`, `Null`, `Undefined`, or `Floating`. These unknown simple
+    /// `Boolean`, `Null`, `Undefined`, or `Floating`. These generic simple
     /// values have a numerical representation as defined in the `CBOR`
     /// specification.
-    UnknownSimple(SimpleNumber),
+    GenericSimple(SimpleNumber),
 }
 
-impl Hash for Value {
+impl Hash for DataItem {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
-            Value::Unsigned(val) | Value::Signed(val) => val.hash(state),
-            Value::Byte(items) => items.hash(state),
-            Value::Text(text) => text.hash(state),
-            Value::Array(values) => values.hash(state),
-            Value::Map(index_map) => {
+            Self::Unsigned(val) | Self::Signed(val) => val.hash(state),
+            Self::Byte(items) => items.hash(state),
+            Self::Text(text) => text.hash(state),
+            Self::Array(values) => values.hash(state),
+            Self::Map(index_map) => {
                 let mut vals = index_map.iter().collect::<Vec<(_, _)>>();
                 vals.sort();
                 vals.hash(state);
             }
-            Value::Tag(num, value) => {
+            Self::Tag(num, value) => {
                 num.hash(state);
                 value.hash(state);
             }
-            Value::Boolean(val) => val.hash(state),
-            Value::Floating(val) => (val + 0.0).to_be_bytes().hash(state),
-            Value::UnknownSimple(simple_number) => simple_number.hash(state),
+            Self::Boolean(val) => val.hash(state),
+            Self::Floating(val) => val.to_be_bytes().hash(state),
+            Self::GenericSimple(simple_number) => simple_number.hash(state),
             _ => {}
         }
     }
 }
 
-impl Eq for Value {}
+impl Eq for DataItem {}
 
-impl Ord for Value {
+impl Ord for DataItem {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.encode().cmp(&other.encode())
     }
 }
 
-impl PartialOrd for Value {
+impl PartialOrd for DataItem {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl From<u64> for Value {
+impl From<u64> for DataItem {
     fn from(value: u64) -> Self {
         Self::Unsigned(value)
     }
@@ -129,7 +129,7 @@ impl From<u64> for Value {
 macro_rules! impl_from {
     ($i:ident, $($t:ty),+) => {
         $(
-        impl From<$t> for Value {
+        impl From<$t> for DataItem {
             fn from(value: $t) -> Self {
                 $i::from(value).into()
             }
@@ -140,7 +140,7 @@ macro_rules! impl_from {
 
 impl_from!(u64, u32, u16, u8);
 
-impl TryFrom<u128> for Value {
+impl TryFrom<u128> for DataItem {
     type Error = TryFromIntError;
 
     fn try_from(value: u128) -> Result<Self, Self::Error> {
@@ -148,7 +148,7 @@ impl TryFrom<u128> for Value {
     }
 }
 
-impl From<i64> for Value {
+impl From<i64> for DataItem {
     fn from(value: i64) -> Self {
         if value.is_negative() {
             let positive_val = -value - 1;
@@ -164,7 +164,7 @@ impl From<i64> for Value {
 
 impl_from!(i64, i32, i16, i8);
 
-impl TryFrom<i128> for Value {
+impl TryFrom<i128> for DataItem {
     type Error = TryFromIntError;
 
     fn try_from(value: i128) -> Result<Self, Self::Error> {
@@ -177,31 +177,31 @@ impl TryFrom<i128> for Value {
     }
 }
 
-impl From<&[u8]> for Value {
+impl From<&[u8]> for DataItem {
     fn from(value: &[u8]) -> Self {
         Self::Byte(value.to_vec())
     }
 }
 
-impl From<String> for Value {
+impl From<String> for DataItem {
     fn from(value: String) -> Self {
         Self::Text(value)
     }
 }
 
-impl From<&str> for Value {
+impl From<&str> for DataItem {
     fn from(value: &str) -> Self {
         Self::Text(value.to_string())
     }
 }
 
-impl From<bool> for Value {
+impl From<bool> for DataItem {
     fn from(value: bool) -> Self {
         Self::Boolean(value)
     }
 }
 
-impl From<f64> for Value {
+impl From<f64> for DataItem {
     fn from(value: f64) -> Self {
         Self::Floating(value)
     }
@@ -209,19 +209,19 @@ impl From<f64> for Value {
 
 impl_from!(f64, f32, half::f16);
 
-impl<T> From<Vec<T>> for Value
+impl<T> From<Vec<T>> for DataItem
 where
-    T: Into<Value>,
+    T: Into<DataItem>,
 {
     fn from(value: Vec<T>) -> Self {
         Self::Array(value.into_iter().map(Into::into).collect())
     }
 }
 
-impl<T, U> From<Vec<(T, U)>> for Value
+impl<T, U> From<Vec<(T, U)>> for DataItem
 where
-    T: Into<Value>,
-    U: Into<Value>,
+    T: Into<DataItem>,
+    U: Into<DataItem>,
 {
     fn from(value: Vec<(T, U)>) -> Self {
         Self::Map(
@@ -233,23 +233,23 @@ where
     }
 }
 
-impl<T> From<&T> for Value
+impl<T> From<&T> for DataItem
 where
-    T: Into<Value> + Clone,
+    T: Into<DataItem> + Clone,
 {
     fn from(value: &T) -> Self {
         value.clone().into()
     }
 }
 
-impl Value {
+impl DataItem {
     /// Is a unsigned integer value?
     ///
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// assert!(Value::Unsigned(20).is_unsigned_integer());
+    /// assert!(DataItem::Unsigned(20).is_unsigned_integer());
     /// ```
     #[must_use]
     pub fn is_unsigned_integer(&self) -> bool {
@@ -260,9 +260,9 @@ impl Value {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// assert!(Value::from(-32).is_signed_integer());
+    /// assert!(DataItem::from(-32).is_signed_integer());
     /// ```
     #[must_use]
     pub fn is_signed_integer(&self) -> bool {
@@ -273,9 +273,9 @@ impl Value {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// assert!(Value::Byte(vec![65, 63, 62]).is_byte());
+    /// assert!(DataItem::Byte(vec![65, 63, 62]).is_byte());
     /// ```
     #[must_use]
     pub fn is_byte(&self) -> bool {
@@ -286,9 +286,9 @@ impl Value {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// assert!(Value::Text("example".to_string()).is_text());
+    /// assert!(DataItem::Text("example".to_string()).is_text());
     /// ```
     #[must_use]
     pub fn is_text(&self) -> bool {
@@ -299,9 +299,9 @@ impl Value {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// assert!(Value::Array(vec![12.into()]).is_array());
+    /// assert!(DataItem::Array(vec![12.into()]).is_array());
     /// ```
     #[must_use]
     pub fn is_array(&self) -> bool {
@@ -312,10 +312,10 @@ impl Value {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     /// use indexmap::IndexMap;
     ///
-    /// assert!(Value::Map(IndexMap::new()).is_map());
+    /// assert!(DataItem::Map(IndexMap::new()).is_map());
     /// ```
     #[must_use]
     pub fn is_map(&self) -> bool {
@@ -326,9 +326,9 @@ impl Value {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// assert!(Value::Tag(12, Box::new(Value::Unsigned(20))).is_tag());
+    /// assert!(DataItem::Tag(12, Box::new(DataItem::Unsigned(20))).is_tag());
     /// ```
     #[must_use]
     pub fn is_tag(&self) -> bool {
@@ -338,9 +338,9 @@ impl Value {
     /// Is a boolean value?
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// assert!(Value::Boolean(false).is_boolean());
+    /// assert!(DataItem::Boolean(false).is_boolean());
     /// ```
     #[must_use]
     pub fn is_boolean(&self) -> bool {
@@ -350,9 +350,9 @@ impl Value {
     /// Is a null value?
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// assert!(Value::Null.is_null());
+    /// assert!(DataItem::Null.is_null());
     /// ```
     #[must_use]
     pub fn is_null(&self) -> bool {
@@ -362,9 +362,9 @@ impl Value {
     /// Is a undefined value?
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// assert!(Value::Undefined.is_undefined());
+    /// assert!(DataItem::Undefined.is_undefined());
     /// ```
     #[must_use]
     pub fn is_undefined(&self) -> bool {
@@ -374,9 +374,9 @@ impl Value {
     /// Is a floating value?
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// assert!(Value::Floating(3.0).is_floating());
+    /// assert!(DataItem::Floating(3.0).is_floating());
     /// ```
     #[must_use]
     pub fn is_floating(&self) -> bool {
@@ -386,37 +386,37 @@ impl Value {
     /// Is a simple value?
     /// # Example
     /// ```
-    /// use cbor_next::{SimpleNumber, Value};
+    /// use cbor_next::{DataItem, SimpleNumber};
     ///
-    /// assert!(Value::UnknownSimple(SimpleNumber::try_from(45).unwrap()).is_simple());
+    /// assert!(DataItem::GenericSimple(SimpleNumber::try_from(45).unwrap()).is_simple());
     /// ```
     #[must_use]
     pub fn is_simple(&self) -> bool {
         matches!(
             self,
-            Self::UnknownSimple(_) | Self::Boolean(_) | Self::Null | Self::Undefined
+            Self::GenericSimple(_) | Self::Boolean(_) | Self::Null | Self::Undefined
         )
     }
 
-    /// Is a unknown simple value?
+    /// Is a generic simple value?
     /// # Example
     /// ```
-    /// use cbor_next::{SimpleNumber, Value};
+    /// use cbor_next::{DataItem, SimpleNumber};
     ///
-    /// assert!(Value::UnknownSimple(SimpleNumber::try_from(45).unwrap()).is_simple());
+    /// assert!(DataItem::GenericSimple(SimpleNumber::try_from(45).unwrap()).is_generic_simple());
     /// ```
     #[must_use]
-    pub fn is_unknown_simple(&self) -> bool {
-        matches!(self, Self::UnknownSimple(_))
+    pub fn is_generic_simple(&self) -> bool {
+        matches!(self, Self::GenericSimple(_))
     }
 
     /// Get as unsigned number
     ///
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// assert!(Value::Unsigned(20).as_unsigned().is_some());
+    /// assert!(DataItem::Unsigned(20).as_unsigned().is_some());
     /// ```
     #[must_use]
     pub fn as_unsigned(&self) -> Option<u64> {
@@ -430,9 +430,9 @@ impl Value {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// assert!(Value::Signed(20).as_signed().is_some());
+    /// assert!(DataItem::Signed(20).as_signed().is_some());
     /// ```
     #[must_use]
     pub fn as_signed(&self) -> Option<i128> {
@@ -446,9 +446,9 @@ impl Value {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// assert!(Value::Byte(vec![]).as_byte().is_some());
+    /// assert!(DataItem::Byte(vec![]).as_byte().is_some());
     /// ```
     #[must_use]
     pub fn as_byte(&self) -> Option<&Vec<u8>> {
@@ -462,9 +462,9 @@ impl Value {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// assert!(Value::Text(String::new()).as_text().is_some());
+    /// assert!(DataItem::Text(String::new()).as_text().is_some());
     /// ```
     #[must_use]
     pub fn as_text(&self) -> Option<&str> {
@@ -478,12 +478,12 @@ impl Value {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// assert!(Value::Array(vec![]).as_array().is_some());
+    /// assert!(DataItem::Array(vec![]).as_array().is_some());
     /// ```
     #[must_use]
-    pub fn as_array(&self) -> Option<&Vec<Value>> {
+    pub fn as_array(&self) -> Option<&Vec<DataItem>> {
         match self {
             Self::Array(arr) => Some(arr),
             _ => None,
@@ -494,13 +494,13 @@ impl Value {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     /// use indexmap::IndexMap;
     ///
-    /// assert!(Value::Map(IndexMap::new()).as_map().is_some());
+    /// assert!(DataItem::Map(IndexMap::new()).as_map().is_some());
     /// ```
     #[must_use]
-    pub fn as_map(&self) -> Option<&IndexMap<Value, Value>> {
+    pub fn as_map(&self) -> Option<&IndexMap<DataItem, DataItem>> {
         match self {
             Self::Map(map) => Some(map),
             _ => None,
@@ -511,16 +511,16 @@ impl Value {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
     /// assert!(
-    ///     Value::Tag(20, Box::new(Value::Signed(20)))
+    ///     DataItem::Tag(20, Box::new(DataItem::Signed(20)))
     ///         .as_tag()
     ///         .is_some()
     /// );
     /// ```
     #[must_use]
-    pub fn as_tag(&self) -> Option<(&u64, &Value)> {
+    pub fn as_tag(&self) -> Option<(&u64, &DataItem)> {
         match self {
             Self::Tag(tag_num, value) => Some((tag_num, value)),
             _ => None,
@@ -531,9 +531,9 @@ impl Value {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// assert!(Value::Boolean(true).as_boolean().is_some());
+    /// assert!(DataItem::Boolean(true).as_boolean().is_some());
     /// ```
     #[must_use]
     pub fn as_boolean(&self) -> Option<bool> {
@@ -547,9 +547,9 @@ impl Value {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// assert!(Value::Floating(-20.0).as_floating().is_some());
+    /// assert!(DataItem::Floating(-20.0).as_floating().is_some());
     /// ```
     #[must_use]
     pub fn as_floating(&self) -> Option<f64> {
@@ -563,10 +563,10 @@ impl Value {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::{SimpleNumber, Value};
+    /// use cbor_next::{DataItem, SimpleNumber};
     ///
     /// assert!(
-    ///     Value::UnknownSimple(SimpleNumber::try_from(10).unwrap())
+    ///     DataItem::GenericSimple(SimpleNumber::try_from(10).unwrap())
     ///         .as_simple()
     ///         .is_some()
     /// );
@@ -574,7 +574,7 @@ impl Value {
     #[must_use]
     pub fn as_simple(&self) -> Option<u8> {
         match self {
-            Self::UnknownSimple(num) => Some(num.val()),
+            Self::GenericSimple(num) => Some(num.val()),
             Self::Boolean(false) => Some(20),
             Self::Boolean(true) => Some(21),
             Self::Null => Some(22),
@@ -587,18 +587,18 @@ impl Value {
     #[must_use]
     pub fn major_type(&self) -> u8 {
         match self {
-            Value::Unsigned(_) => 0,
-            Value::Signed(_) => 1,
-            Value::Byte(_) => 2,
-            Value::Text(_) => 3,
-            Value::Array(_) => 4,
-            Value::Map(_) => 5,
-            Value::Tag(..) => 6,
-            Value::Boolean(_)
-            | Value::Null
-            | Value::Undefined
-            | Value::Floating(_)
-            | Self::UnknownSimple(_) => 7,
+            Self::Unsigned(_) => 0,
+            Self::Signed(_) => 1,
+            Self::Byte(_) => 2,
+            Self::Text(_) => 3,
+            Self::Array(_) => 4,
+            Self::Map(_) => 5,
+            Self::Tag(..) => 6,
+            Self::Boolean(_)
+            | Self::Null
+            | Self::Undefined
+            | Self::Floating(_)
+            | Self::GenericSimple(_) => 7,
         }
     }
 
@@ -606,21 +606,21 @@ impl Value {
     ///
     /// # Example
     /// ```rust
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
-    /// let value = Value::Unsigned(10_000_000);
+    /// let value = DataItem::Unsigned(10_000_000);
     /// let vector_data = vec![0x1a, 0x00, 0x98, 0x96, 0x80];
     /// assert_eq!(value.encode(), vector_data);
     /// ```
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         match self {
-            Value::Unsigned(number) | Value::Signed(number) => {
+            Self::Unsigned(number) | Self::Signed(number) => {
                 encode_u64_number(self.major_type(), *number)
             }
-            Value::Byte(byte) => encode_vec_u8(self.major_type(), byte),
-            Value::Text(text_string) => encode_vec_u8(self.major_type(), text_string.as_bytes()),
-            Value::Array(array) => {
+            Self::Byte(byte) => encode_vec_u8(self.major_type(), byte),
+            Self::Text(text_string) => encode_vec_u8(self.major_type(), text_string.as_bytes()),
+            Self::Array(array) => {
                 let array_len = u64::try_from(array.len());
                 let mut array_bytes = if let Ok(length) = array_len {
                     encode_u64_number(self.major_type(), length)
@@ -635,7 +635,7 @@ impl Value {
                 }
                 array_bytes
             }
-            Value::Map(map) => {
+            Self::Map(map) => {
                 let map_len = u64::try_from(map.len());
                 let mut map_bytes = if let Ok(length) = map_len {
                     encode_u64_number(self.major_type(), length)
@@ -651,21 +651,21 @@ impl Value {
                 }
                 map_bytes
             }
-            Value::Tag(number, value) => {
+            Self::Tag(number, value) => {
                 let mut tag_bytes = encode_u64_number(self.major_type(), *number);
                 tag_bytes.append(&mut value.encode());
                 tag_bytes
             }
-            Value::Boolean(bool_val) => {
+            Self::Boolean(bool_val) => {
                 match bool_val {
                     false => vec![self.major_type() << 5 | 20],
                     true => vec![self.major_type() << 5 | 21],
                 }
             }
-            Value::Null => vec![self.major_type() << 5 | 22],
-            Value::Undefined => vec![self.major_type() << 5 | 23],
-            Value::Floating(number) => encode_f64_number(self.major_type(), *number),
-            Value::UnknownSimple(simple_number) => {
+            Self::Null => vec![self.major_type() << 5 | 22],
+            Self::Undefined => vec![self.major_type() << 5 | 23],
+            Self::Floating(number) => encode_f64_number(self.major_type(), *number),
+            Self::GenericSimple(simple_number) => {
                 if **simple_number <= 23 {
                     vec![self.major_type() << 5 | **simple_number]
                 } else {
@@ -679,11 +679,11 @@ impl Value {
     ///
     /// # Example
     /// ```rust
-    /// use cbor_next::Value;
+    /// use cbor_next::DataItem;
     ///
     /// let vector_data = vec![0x1a, 0x00, 0x98, 0x96, 0x80];
-    /// let value = Value::Unsigned(10_000_000);
-    /// assert_eq!(Value::decode(&vector_data).unwrap(), value);
+    /// let value = DataItem::Unsigned(10_000_000);
+    /// assert_eq!(DataItem::decode(&vector_data).unwrap(), value);
     /// ```
     ///
     /// # Errors
@@ -802,20 +802,20 @@ fn encode_f64_number(major_type: u8, f64_number: f64) -> Vec<u8> {
     cbor_representation
 }
 
-fn decode_value(iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
-    let initial_info = iter.next().ok_or(Error::Empty)?;
+fn decode_value(iter: &mut Iter<'_, u8>) -> Result<DataItem, Error> {
+    let initial_info = iter.next().ok_or(Error::Incomplete)?;
     let major_type = initial_info >> 5;
     let additional = initial_info & 0b0001_1111;
     match major_type {
-        0 => Ok(Value::Unsigned(extract_number(additional, iter)?)),
-        1 => Ok(Value::Signed(extract_number(additional, iter)?)),
+        0 => Ok(DataItem::Unsigned(extract_number(additional, iter)?)),
+        1 => Ok(DataItem::Signed(extract_number(additional, iter)?)),
         2 => {
-            Ok(Value::Byte(decode_byte_or_text(
+            Ok(DataItem::Byte(decode_byte_or_text(
                 major_type, additional, iter,
             )?))
         }
         3 => {
-            Ok(Value::Text(String::from_utf8(decode_byte_or_text(
+            Ok(DataItem::Text(String::from_utf8(decode_byte_or_text(
                 major_type, additional, iter,
             )?)?))
         }
@@ -824,7 +824,7 @@ fn decode_value(iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
         6 => {
             let tag_number = extract_number(additional, iter)?;
             let tag_value = decode_value(iter)?;
-            Ok(Value::Tag(tag_number, Box::new(tag_value)))
+            Ok(DataItem::Tag(tag_number, Box::new(tag_value)))
         }
         7 => decode_simple_or_floating(additional, iter),
         _ => unreachable!("major type can only be between 0 to 7"),
@@ -841,19 +841,13 @@ fn decode_byte_or_text(
     if let Some(num) = length {
         val_vec.append(&mut collect_vec_u8(iter, num)?);
     } else {
-        val_vec.append(&mut decode_vec_u8(major_type, iter)?);
-        match iter.clone().next() {
-            Some(255) => {
-                iter.next();
-            }
-            None => return Err(Error::IncompleteIndefinite),
-            _ => unreachable!("non 255 some value should be handled already"),
-        }
+        val_vec.append(&mut decode_finite_byte_or_text(major_type, iter)?);
+        iter.next();
     }
     Ok(val_vec)
 }
 
-fn decode_array(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
+fn decode_array(additional: u8, iter: &mut Iter<'_, u8>) -> Result<DataItem, Error> {
     let length = extract_optional_number(additional, iter)?;
     let mut val_vec = vec![];
     if let Some(num) = length {
@@ -872,10 +866,10 @@ fn decode_array(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Value, Error>
             _ => unreachable!("non 255 some value should be handled already"),
         }
     }
-    Ok(Value::Array(val_vec))
+    Ok(DataItem::Array(val_vec))
 }
 
-fn decode_map(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
+fn decode_map(additional: u8, iter: &mut Iter<'_, u8>) -> Result<DataItem, Error> {
     let length: Option<u64> = extract_optional_number(additional, iter)?;
     let mut map_index_map = IndexMap::new();
     if let Some(num) = length {
@@ -900,22 +894,22 @@ fn decode_map(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
             _ => unreachable!("non 255 some value should be handled already"),
         }
     }
-    Ok(Value::Map(map_index_map))
+    Ok(DataItem::Map(map_index_map))
 }
 
-fn decode_simple_or_floating(additional: u8, iter: &mut Iter<'_, u8>) -> Result<Value, Error> {
+fn decode_simple_or_floating(additional: u8, iter: &mut Iter<'_, u8>) -> Result<DataItem, Error> {
     match additional {
-        0..=19 => Ok(Value::UnknownSimple(additional.try_into()?)),
-        20 => Ok(Value::Boolean(false)),
-        21 => Ok(Value::Boolean(true)),
-        22 => Ok(Value::Null),
-        23 => Ok(Value::Undefined),
+        0..=19 => Ok(DataItem::GenericSimple(additional.try_into()?)),
+        20 => Ok(DataItem::Boolean(false)),
+        21 => Ok(DataItem::Boolean(true)),
+        22 => Ok(DataItem::Null),
+        23 => Ok(DataItem::Undefined),
         24 => {
             if let Some(next_num) = iter.next() {
                 if *next_num < 32 {
                     Err(Error::InvalidSimple)
                 } else {
-                    Ok(Value::UnknownSimple((*next_num).try_into()?))
+                    Ok(DataItem::GenericSimple((*next_num).try_into()?))
                 }
             } else {
                 Err(Error::InvalidSimple)
@@ -923,55 +917,59 @@ fn decode_simple_or_floating(additional: u8, iter: &mut Iter<'_, u8>) -> Result<
         }
         25 => {
             let number_representation = u16::try_from(extract_number(additional, iter)?)?;
-            Ok(Value::Floating(f64::from(half::f16::from_bits(
+            Ok(DataItem::Floating(f64::from(half::f16::from_bits(
                 number_representation,
             ))))
         }
         26 => {
             let number_representation = u32::try_from(extract_number(additional, iter)?)?;
-            Ok(Value::Floating(f64::from(f32::from_bits(
+            Ok(DataItem::Floating(f64::from(f32::from_bits(
                 number_representation,
             ))))
         }
         27 => {
             let f64_number_representation = extract_number(additional, iter)?;
-            Ok(Value::Floating(f64::from_bits(f64_number_representation)))
+            Ok(DataItem::Floating(f64::from_bits(
+                f64_number_representation,
+            )))
         }
         28..=30 => {
             Err(Error::NotWellFormed(format!(
                 "invalid value {additional} for major type 7"
             )))
         }
-        31 => Err(Error::LonelyBreakStop),
+        31 => Err(Error::InvalidBreakStop),
         _ => unreachable!("Cannot have additional info value greater than 31"),
     }
 }
 
-fn decode_vec_u8(major_type: u8, iter: &mut Iter<'_, u8>) -> Result<Vec<u8>, Error> {
+fn decode_finite_byte_or_text(
+    expected_major_type: u8,
+    iter: &mut Iter<'_, u8>,
+) -> Result<Vec<u8>, Error> {
     let mut result = vec![];
-    #[expect(clippy::collapsible_if, reason = "not supported in stable version")]
     if let Some(peek_val) = iter.clone().next() {
-        if *peek_val != 255 {
-            let val = decode_value(iter)?;
-            if val.major_type() != major_type {
-                return Err(Error::NotWellFormed(format!(
-                    "contains invalid major type {} for indefinite major type {}",
-                    val.major_type(),
-                    major_type
-                )));
-            }
-            match val {
-                Value::Byte(mut byte) => result.append(&mut byte),
-                Value::Text(text) => result.append(&mut text.as_bytes().to_vec()),
-                _ => unreachable!("only text and byte calls this function"),
-            }
-            result.append(&mut decode_vec_u8(major_type, iter)?);
+        if *peek_val == 255 {
+            return Ok(result);
         }
+        let initial_info = iter.next().ok_or(Error::Incomplete)?;
+        let major_type = initial_info >> 5;
+        if expected_major_type != major_type {
+            return Err(Error::NotWellFormed(format!(
+                "contains invalid major type {major_type} for indefinite major type \
+                 {expected_major_type}"
+            )));
+        }
+        let additional = initial_info & 0b0001_1111;
+        let length = extract_number(additional, iter)?;
+        result.extend(collect_vec_u8(iter, length)?);
+        result.extend(decode_finite_byte_or_text(expected_major_type, iter)?);
+        return Ok(result);
     }
-    Ok(result)
+    Err(Error::IncompleteIndefinite)
 }
 
-fn extract_array_item(iter: &mut Iter<'_, u8>) -> Result<Vec<Value>, Error> {
+fn extract_array_item(iter: &mut Iter<'_, u8>) -> Result<Vec<DataItem>, Error> {
     let mut result = vec![];
     #[expect(clippy::collapsible_if, reason = "not supported in stable version")]
     if let Some(peek_val) = iter.clone().next() {
@@ -983,7 +981,7 @@ fn extract_array_item(iter: &mut Iter<'_, u8>) -> Result<Vec<Value>, Error> {
     Ok(result)
 }
 
-fn extract_map_item(iter: &mut Iter<'_, u8>) -> Result<IndexMap<Value, Value>, Error> {
+fn extract_map_item(iter: &mut Iter<'_, u8>) -> Result<IndexMap<DataItem, DataItem>, Error> {
     let mut result = IndexMap::new();
     #[expect(clippy::collapsible_if, reason = "not supported in stable version")]
     if let Some(peek_val) = iter.clone().next() {
