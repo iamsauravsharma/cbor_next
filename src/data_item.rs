@@ -410,13 +410,42 @@ impl DataItem {
         matches!(self, Self::GenericSimple(_))
     }
 
+    /// Recursively checks nested CBOR data items until a non-tag item is found,
+    /// then applies the given checker function to that item.
+    ///
+    /// This is particularly useful for examining the underlying value of tagged
+    /// data items without manually unwrapping each layer of tags. Also
+    ///
+    /// # Example
+    /// ```rust
+    /// use cbor_next::DataItem;
+    ///
+    /// let tag = DataItem::Tag(
+    ///     20,
+    ///     Box::new(DataItem::Tag(30, Box::new(DataItem::Signed(20)))),
+    /// );
+    /// assert!(tag.check_inner(DataItem::is_signed_integer));
+    /// ```
+    ///
+    /// # Note
+    /// The function will skip all outer tags before applying the checker.
+    /// If you need to check the tags themselves, use [`DataItem::is_tag`]
+    /// directly
+    #[must_use]
+    pub fn check_inner(&self, checker: impl Fn(&Self) -> bool) -> bool {
+        match self {
+            Self::Tag(_, boxed_item) => boxed_item.check_inner(checker),
+            _ => checker(self),
+        }
+    }
+
     /// Get as unsigned number
     ///
     /// # Example
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert!(DataItem::Unsigned(20).as_unsigned().is_some());
+    /// assert_eq!(DataItem::Unsigned(20).as_unsigned(), Some(20));
     /// ```
     #[must_use]
     pub fn as_unsigned(&self) -> Option<u64> {
@@ -432,7 +461,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert!(DataItem::Signed(20).as_signed().is_some());
+    /// assert_eq!(DataItem::Signed(20).as_signed(), Some(-21));
     /// ```
     #[must_use]
     pub fn as_signed(&self) -> Option<i128> {
@@ -442,13 +471,13 @@ impl DataItem {
         }
     }
 
-    /// Get as byte number
+    /// Get as byte
     ///
     /// # Example
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert!(DataItem::Byte(vec![]).as_byte().is_some());
+    /// assert_eq!(DataItem::Byte(vec![0x6a]).as_byte(), Some(&vec![0x6a]));
     /// ```
     #[must_use]
     pub fn as_byte(&self) -> Option<&Vec<u8>> {
@@ -458,13 +487,13 @@ impl DataItem {
         }
     }
 
-    /// Get as text number
+    /// Get as text
     ///
     /// # Example
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert!(DataItem::Text(String::new()).as_text().is_some());
+    /// assert_eq!(DataItem::Text("cbor".to_string()).as_text(), Some("cbor"));
     /// ```
     #[must_use]
     pub fn as_text(&self) -> Option<&str> {
@@ -474,13 +503,16 @@ impl DataItem {
         }
     }
 
-    /// Get as array number
+    /// Get as array
     ///
     /// # Example
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert!(DataItem::Array(vec![]).as_array().is_some());
+    /// assert_eq!(
+    ///     DataItem::Array(vec![12.into()]).as_array(),
+    ///     Some(&vec![12.into()])
+    /// );
     /// ```
     #[must_use]
     pub fn as_array(&self) -> Option<&Vec<DataItem>> {
@@ -490,14 +522,17 @@ impl DataItem {
         }
     }
 
-    /// Get as map number
+    /// Get as map
     ///
     /// # Example
     /// ```
     /// use cbor_next::DataItem;
     /// use indexmap::IndexMap;
     ///
-    /// assert!(DataItem::Map(IndexMap::new()).as_map().is_some());
+    /// assert_eq!(
+    ///     DataItem::Map(IndexMap::new()).as_map(),
+    ///     Some(&IndexMap::new())
+    /// );
     /// ```
     #[must_use]
     pub fn as_map(&self) -> Option<&IndexMap<DataItem, DataItem>> {
@@ -507,22 +542,21 @@ impl DataItem {
         }
     }
 
-    /// Get as tag number
+    /// Get as tag
     ///
     /// # Example
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert!(
-    ///     DataItem::Tag(20, Box::new(DataItem::Signed(20)))
-    ///         .as_tag()
-    ///         .is_some()
+    /// assert_eq!(
+    ///     DataItem::Tag(20, Box::new(DataItem::Signed(20))).as_tag(),
+    ///     Some((20, &DataItem::Signed(20)))
     /// );
     /// ```
     #[must_use]
-    pub fn as_tag(&self) -> Option<(&u64, &DataItem)> {
+    pub fn as_tag(&self) -> Option<(u64, &DataItem)> {
         match self {
-            Self::Tag(tag_num, value) => Some((tag_num, value)),
+            Self::Tag(tag_num, value) => Some((*tag_num, value)),
             _ => None,
         }
     }
@@ -533,7 +567,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert!(DataItem::Boolean(true).as_boolean().is_some());
+    /// assert_eq!(DataItem::Boolean(true).as_boolean(), Some(true));
     /// ```
     #[must_use]
     pub fn as_boolean(&self) -> Option<bool> {
@@ -549,7 +583,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert!(DataItem::Floating(-20.0).as_floating().is_some());
+    /// assert_eq!(DataItem::Floating(-20.0).as_floating(), Some(-20.0));
     /// ```
     #[must_use]
     pub fn as_floating(&self) -> Option<f64> {
@@ -565,10 +599,9 @@ impl DataItem {
     /// ```
     /// use cbor_next::{DataItem, SimpleNumber};
     ///
-    /// assert!(
-    ///     DataItem::GenericSimple(SimpleNumber::try_from(10).unwrap())
-    ///         .as_simple()
-    ///         .is_some()
+    /// assert_eq!(
+    ///     DataItem::GenericSimple(SimpleNumber::try_from(10).unwrap()).as_simple(),
+    ///     Some(10)
     /// );
     /// ```
     #[must_use]
@@ -581,6 +614,31 @@ impl DataItem {
             Self::Undefined => Some(23),
             _ => None,
         }
+    }
+
+    /// Recursively extract tagged values, collecting all tag numbers and
+    /// returning them with the extracted value. Tags are vector of tag numbers
+    /// in outer-to-inner order
+    ///
+    ///  When extractor is tag extractor i.e [`DataItem::as_tag`] than this
+    /// would always return `None` since it only supports non tag extract but
+    /// would successfully returns tag list
+    ///
+    /// # Example
+    /// ```rust
+    /// use cbor_next::DataItem;
+    ///
+    /// let tag = DataItem::Tag(
+    ///     20,
+    ///     Box::new(DataItem::Tag(30, Box::new(DataItem::Signed(20)))),
+    /// );
+    /// let tag_unwrapped = tag.as_inner(DataItem::as_signed);
+    /// assert_eq!(tag_unwrapped, Some((vec![20, 30], -21)));
+    /// ```
+    #[must_use]
+    pub fn as_inner<T>(&self, extractor: impl Fn(&Self) -> Option<T>) -> Option<(Vec<u64>, T)> {
+        let mut tags = vec![];
+        extract_and_extend_tags(self, extractor, &mut tags).map(|val| (tags, val))
     }
 
     /// Get a major type of a value
@@ -725,6 +783,20 @@ impl DataItem {
             Self::Tag(tag_num, val) => Self::Tag(tag_num, Box::new(val.deterministic(mode))),
             _ => self,
         }
+    }
+}
+
+fn extract_and_extend_tags<T>(
+    item: &DataItem,
+    extractor: impl Fn(&DataItem) -> Option<T>,
+    tags: &mut Vec<u64>,
+) -> Option<T> {
+    match item {
+        DataItem::Tag(tag, inner_item) => {
+            tags.push(*tag);
+            extract_and_extend_tags(inner_item, extractor, tags)
+        }
+        _ => extractor(item),
     }
 }
 
