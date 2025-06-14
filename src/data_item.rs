@@ -1,4 +1,6 @@
+use core::f64;
 use std::convert::Into;
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::num::TryFromIntError;
 use std::slice::Iter;
@@ -15,7 +17,7 @@ use crate::simple_number::SimpleNumber;
 /// `CBOR` is a data format designed for small code and message size, often used
 /// in constrained environments. This `DataItem` enum covers all major types
 /// defined in the `CBOR` specification (RFC 8949).
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Clone)]
 #[non_exhaustive]
 pub enum DataItem {
     /// Unsigned integer represented by `CBOR` major type 0.
@@ -79,6 +81,56 @@ pub enum DataItem {
     /// values have a numerical representation as defined in the `CBOR`
     /// specification.
     GenericSimple(SimpleNumber),
+}
+
+impl Debug for DataItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unsigned(number) => number.fmt(f),
+            Self::Signed(number) => (-i128::from(number + 1)).fmt(f),
+            Self::Floating(number) => {
+                if number.is_nan() {
+                    return write!(f, "NaN");
+                }
+                match *number {
+                    f64::INFINITY => write!(f, "Infinity"),
+                    f64::NEG_INFINITY => write!(f, "-Infinity"),
+                    _ => number.fmt(f),
+                }
+            }
+            Self::Boolean(bool_val) => bool_val.fmt(f),
+            Self::Null => write!(f, "null"),
+            Self::Undefined => write!(f, "undefined"),
+            Self::GenericSimple(simple_number) => simple_number.fmt(f),
+            Self::Byte(bytes) => {
+                write!(f, "h'")?;
+                for byte in bytes {
+                    write!(f, "{byte:02x}")?;
+                }
+                write!(f, "'")
+            }
+            Self::Text(text_string) => text_string.fmt(f),
+            Self::Array(array) => {
+                let mut array_item_vec = vec![];
+                for item in array {
+                    array_item_vec.push(format!("{item:?}"));
+                }
+                let array_item_str = array_item_vec.join(", ");
+                write!(f, "[{array_item_str}]")
+            }
+            Self::Map(map) => {
+                let mut array_item_vec = vec![];
+                for (key, value) in map {
+                    array_item_vec.push(format!("{key:?}: {value:?}"));
+                }
+                let array_item_str = array_item_vec.join(", ");
+                write!(f, "{{{array_item_str}}}")
+            }
+            Self::Tag(tag_number, internal_val) => {
+                write!(f, "{tag_number:?}({internal_val:?})")
+            }
+        }
+    }
 }
 
 impl Hash for DataItem {
@@ -751,7 +803,7 @@ impl DataItem {
         decode_value(&mut iter)
     }
 
-    /// Get a deterministic form in provided mode
+    /// Get a deterministic ordering form in provided mode
     #[must_use]
     pub fn deterministic(self, mode: &DeterministicMode) -> Self {
         match self {

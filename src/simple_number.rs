@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::ops::Deref;
 
 use crate::error::Error;
@@ -15,7 +16,7 @@ use crate::error::Error;
 /// assert!(SimpleNumber::try_from(24).is_err());
 /// assert!(SimpleNumber::try_from(29).is_err());
 /// ```
-#[derive(PartialEq, Debug, Hash, Clone)]
+#[derive(PartialEq, Hash, Clone)]
 pub struct SimpleNumber(u8);
 
 impl Deref for SimpleNumber {
@@ -23,6 +24,12 @@ impl Deref for SimpleNumber {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl Debug for SimpleNumber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "simple({})", self.0)
     }
 }
 

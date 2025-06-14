@@ -438,3 +438,43 @@ fn map_index_verification() {
             .is_none()
     );
 }
+
+fn debug_compare(diagnostic_val: &str, hex_val: &str) {
+    assert_eq!(
+        format!(
+            "{:?}",
+            DataItem::decode(&hex::decode(hex_val).unwrap()).unwrap()
+        ),
+        diagnostic_val
+    );
+}
+
+#[test]
+fn debug() {
+    debug_compare("10", "0a");
+    debug_compare("-10", "29");
+    debug_compare("Infinity", "f97c00");
+    debug_compare("-Infinity", "f9fc00");
+    debug_compare("NaN", "fb7ff8000000000000");
+    debug_compare("true", "f5");
+    debug_compare("simple(255)", "f8ff");
+    debug_compare(
+        "0(\"2013-03-21T20:04:00Z\")",
+        "c074323031332d30332d32315432303a30343a30305a",
+    );
+    debug_compare("1(1363896240.5)", "c1fb41d452d9ec200000");
+    debug_compare("24(h'6449455446')", "d818456449455446");
+    debug_compare(
+        "32(\"http://www.example.com\")",
+        "d82076687474703a2f2f7777772e6578616d706c652e636f6d",
+    );
+    debug_compare("\"IETF\"", "6449455446");
+    debug_compare("\"𐅑\"", "64f0908591");
+    debug_compare("[1, 2, 3]", "83010203");
+    debug_compare("[1, [2, 3], [4, 5]]", "8301820203820405");
+    debug_compare("{1: 2, 3: 4}", "a201020304");
+    debug_compare(
+        "{\"a\": \"A\", \"b\": \"B\", \"c\": \"C\", \"d\": \"D\", \"e\": \"E\"}",
+        "a56161614161626142616361436164614461656145",
+    );
+}
