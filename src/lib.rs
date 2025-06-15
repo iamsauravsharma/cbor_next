@@ -15,7 +15,7 @@ pub mod error;
 /// Module for index
 pub mod index;
 
-pub use content::SimpleValue;
+pub use content::{ArrayContent, ByteContent, MapContent, SimpleValue, TextContent};
 pub use data_item::DataItem;
 pub use deterministic::DeterministicMode;
 pub use index::Get;

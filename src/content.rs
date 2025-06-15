@@ -7,7 +7,16 @@ use indexmap::IndexMap;
 use crate::DataItem;
 use crate::error::Error;
 
-/// Struct which holds a byte content
+/// Struct which holds a byte data
+///
+/// # Example
+/// ```rust
+/// use cbor_next::ByteContent
+/// let mut content = ByteContent::default();
+/// assert!(!content.is_indefinite());
+/// content.set_indefinite(true);
+/// assert!(content.is_indefinite());
+/// ```
 #[derive(Default, PartialEq, PartialOrd, Clone, Hash)]
 pub struct ByteContent {
     is_indefinite: bool,
@@ -24,26 +33,25 @@ impl From<Vec<u8>> for ByteContent {
 }
 
 impl ByteContent {
-    /// Set a indefinite value to provided value
+    /// Set a content as an indefinite content
     pub fn set_indefinite(&mut self, indefinite: bool) -> &mut Self {
         self.is_indefinite = indefinite;
         self
     }
 
-    /// Set value to a content if needed it would override old value
+    /// Set value of a content by overriding old data present inside content
     pub fn set_bytes(&mut self, byte: &[u8]) -> &mut Self {
         self.bytes = vec![byte.to_vec()];
         self
     }
 
-    /// Add value to a content this does not remove old value but add value to
-    /// vector
+    /// Append new data to a content without overriding old value
     pub fn add_bytes(&mut self, byte: &[u8]) -> &mut Self {
         self.bytes.push(byte.to_vec());
         self
     }
 
-    /// Extend value to a content this does not remove old vector to a value
+    /// Extend value by a byte
     pub fn extend_bytes(&mut self, byte: &[Vec<u8>]) -> &mut Self {
         self.bytes.extend(byte.to_vec());
         self
@@ -69,6 +77,15 @@ impl ByteContent {
 }
 
 /// Struct which holds a text content
+///
+/// # Example
+/// ```rust
+/// use cbor_next::TextContent
+/// let mut content = TextContent::default();
+/// assert!(!content.is_indefinite());
+/// content.set_indefinite(true);
+/// assert!(content.is_indefinite());
+/// ```
 #[derive(Default, PartialEq, PartialOrd, Clone, Hash)]
 pub struct TextContent {
     is_indefinite: bool,
@@ -120,20 +137,19 @@ impl TryFrom<ByteContent> for TextContent {
 }
 
 impl TextContent {
-    /// Set a indefinite value to provided value
+    /// Set a content as an indefinite content
     pub fn set_indefinite(&mut self, indefinite: bool) -> &mut Self {
         self.is_indefinite = indefinite;
         self
     }
 
-    /// Set value to a content if needed it would override old value
+    /// Set value of a content by overriding old data present inside content
     pub fn set_string(&mut self, string: &str) -> &mut Self {
         self.strings = vec![string.to_string()];
         self
     }
 
-    /// Add value to a content this does not remove old value but add value to
-    /// vector
+    /// Append new data to a content without overriding old value
     pub fn add_string(&mut self, string: &str) -> &mut Self {
         self.strings.push(string.to_string());
         self
@@ -159,6 +175,15 @@ impl TextContent {
 }
 
 /// Struct which holds a array content
+///
+/// # Example
+/// ```rust
+/// use cbor_next::ArrayContent
+/// let mut content = ArrayContent::default();
+/// assert!(!content.is_indefinite());
+/// content.set_indefinite(true);
+/// assert!(content.is_indefinite());
+/// ```
 #[derive(Default, PartialEq, Clone, Hash)]
 pub struct ArrayContent {
     is_indefinite: bool,
@@ -175,7 +200,7 @@ impl From<Vec<DataItem>> for ArrayContent {
 }
 
 impl ArrayContent {
-    /// Set a indefinite value to provided value
+    /// Set a content as an indefinite content
     pub fn set_indefinite(&mut self, indefinite: bool) -> &mut Self {
         self.is_indefinite = indefinite;
         self
@@ -207,6 +232,15 @@ impl ArrayContent {
 }
 
 /// Struct which holds a map content
+///
+/// # Example
+/// ```rust
+/// use cbor_next::MapContent
+/// let mut content = MapContent::default();
+/// assert!(!content.is_indefinite());
+/// content.set_indefinite(true);
+/// assert!(content.is_indefinite());
+/// ```
 #[derive(Default, PartialEq, Clone)]
 pub struct MapContent {
     is_indefinite: bool,
@@ -223,7 +257,7 @@ impl From<IndexMap<DataItem, DataItem>> for MapContent {
 }
 
 impl MapContent {
-    /// Set a indefinite value to provided value
+    /// Set a content as an indefinite content
     pub fn set_indefinite(&mut self, indefinite: bool) -> &mut Self {
         self.is_indefinite = indefinite;
         self
