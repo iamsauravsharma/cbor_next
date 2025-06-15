@@ -1,4 +1,5 @@
 use core::f64;
+use std::cmp::Ordering;
 use std::convert::Into;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -142,8 +143,7 @@ impl Hash for DataItem {
             Self::Text(text) => text.hash(state),
             Self::Array(values) => values.hash(state),
             Self::Map(index_map) => {
-                let mut vals = index_map.iter().collect::<Vec<(_, _)>>();
-                vals.sort();
+                let vals = index_map.iter().collect::<Vec<(_, _)>>();
                 vals.hash(state);
             }
             Self::Tag(num, value) => {
@@ -159,18 +159,6 @@ impl Hash for DataItem {
 }
 
 impl Eq for DataItem {}
-
-impl Ord for DataItem {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.encode().cmp(&other.encode())
-    }
-}
-
-impl PartialOrd for DataItem {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
 
 impl From<u64> for DataItem {
     fn from(value: u64) -> Self {
@@ -803,28 +791,57 @@ impl DataItem {
         decode_value(&mut iter)
     }
 
+    /// Check current data item is deterministic form
+    #[must_use]
+    pub fn is_deterministic(&self, mode: &DeterministicMode) -> bool {
+        match self {
+            Self::Map(index_map) => {
+                index_map
+                    .iter()
+                    .zip(index_map.iter().skip(1))
+                    .all(|((k1, _), (k2, _))| {
+                        let key1_encode = k1.encode();
+                        let key2_encode = k2.encode();
+                        match mode {
+                            DeterministicMode::Core => key1_encode <= key2_encode,
+                            DeterministicMode::LengthFirst => {
+                                match key1_encode.len().cmp(&key2_encode.len()) {
+                                    Ordering::Equal => key1_encode <= key2_encode,
+                                    Ordering::Greater => false,
+                                    Ordering::Less => true,
+                                }
+                            }
+                        }
+                    })
+            }
+            Self::Array(val) => val.iter().all(|v| v.is_deterministic(mode)),
+            Self::Tag(_, val) => val.is_deterministic(mode),
+            _ => true,
+        }
+    }
+
     /// Get a deterministic ordering form in provided mode
     #[must_use]
     pub fn deterministic(self, mode: &DeterministicMode) -> Self {
         match self {
-            Self::Map(vector) => {
-                let mut data = vector
+            Self::Map(index_map) => {
+                let mut data = index_map
                     .into_iter()
                     .map(|(k, v)| (k.deterministic(mode), v.deterministic(mode)))
                     .collect::<Vec<(_, _)>>();
-                match mode {
-                    DeterministicMode::Core => data.sort(),
-                    DeterministicMode::LengthFirst => {
-                        data.sort_by(|(k1, _), (k2, _)| {
-                            let key1_encode = k1.encode();
-                            let key2_encode = k2.encode();
+                data.sort_by(|(k1, _), (k2, _)| {
+                    let key1_encode = k1.encode();
+                    let key2_encode = k2.encode();
+                    match mode {
+                        DeterministicMode::Core => key1_encode.cmp(&key2_encode),
+                        DeterministicMode::LengthFirst => {
                             match key1_encode.len().cmp(&key2_encode.len()) {
-                                std::cmp::Ordering::Equal => key1_encode.cmp(&key2_encode),
+                                Ordering::Equal => key1_encode.cmp(&key2_encode),
                                 order => order,
                             }
-                        });
+                        }
                     }
-                }
+                });
                 let mut index_map = IndexMap::new();
                 index_map.extend(data);
                 Self::Map(index_map)

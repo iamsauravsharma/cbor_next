@@ -358,9 +358,14 @@ fn core_deterministic() {
     let mut random_key_value = key_value_vec.clone();
     random_key_value.shuffle(&mut rand::rng());
     assert_ne!(key_value_vec, random_key_value);
-    let map_val = DataItem::Map(IndexMap::from_iter(random_key_value))
-        .deterministic(&DeterministicMode::Core);
-    assert_eq!(DataItem::Map(IndexMap::from_iter(key_value_vec)), map_val);
+    let random_data_item = DataItem::Map(IndexMap::from_iter(random_key_value));
+    assert!(!random_data_item.is_deterministic(&DeterministicMode::Core));
+    let deterministic = random_data_item.deterministic(&DeterministicMode::Core);
+    assert!(deterministic.is_deterministic(&DeterministicMode::Core));
+    assert_eq!(
+        DataItem::Map(IndexMap::from_iter(key_value_vec)),
+        deterministic
+    );
 }
 
 #[test]
@@ -388,9 +393,14 @@ fn length_core_deterministic() {
     let mut random_key_value = key_value_vec.clone();
     random_key_value.shuffle(&mut rand::rng());
     assert_ne!(key_value_vec, random_key_value);
-    let map_val = DataItem::Map(IndexMap::from_iter(random_key_value))
-        .deterministic(&DeterministicMode::LengthFirst);
-    assert_eq!(DataItem::Map(IndexMap::from_iter(key_value_vec)), map_val);
+    let random_data_item = DataItem::Map(IndexMap::from_iter(random_key_value));
+    assert!(!random_data_item.is_deterministic(&DeterministicMode::LengthFirst));
+    let deterministic = random_data_item.deterministic(&DeterministicMode::LengthFirst);
+    assert!(deterministic.is_deterministic(&DeterministicMode::LengthFirst));
+    assert_eq!(
+        DataItem::Map(IndexMap::from_iter(key_value_vec)),
+        deterministic
+    );
 }
 
 #[test]
