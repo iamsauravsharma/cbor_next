@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["data_item","deterministic","error","index","simple_number"]};
+window.SIDEBAR_ITEMS = {"mod":["content","data_item","deterministic","error","index"]};
