@@ -4,6 +4,7 @@ use std::vec;
 use indexmap::IndexMap;
 use rand::seq::SliceRandom;
 
+use crate::content::{ArrayContent, ByteContent, MapContent, TextContent};
 use crate::data_item::DataItem;
 use crate::deterministic::DeterministicMode;
 use crate::error::Error;
@@ -44,8 +45,9 @@ where
     let value_to_cbor = value.encode();
     assert_eq!(value_to_cbor, vec_u8_cbor, "{hex_cbor}");
     let cbor_to_value = DataItem::decode(&vec_u8_cbor)
-        .unwrap_or_else(|err| panic!("{err} failed to decode value {hex_cbor}"));
-    assert_eq!(&cbor_to_value, &value, "{hex_cbor}");
+        .unwrap_or_else(|err| panic!("{err} failed to decode value {hex_cbor}"))
+        .encode();
+    assert_eq!(&cbor_to_value, &value_to_cbor, "{hex_cbor}");
 }
 
 #[test]
@@ -148,9 +150,15 @@ fn tag() {
 fn byte() {
     compare_cbor_value("40", Vec::new().as_slice());
     compare_cbor_value("4401020304", hex::decode("01020304").unwrap().as_slice());
-    decode_compare(
+    compare_cbor_value(
         "5f42010243030405ff",
-        hex::decode("0102030405").unwrap().as_slice(),
+        DataItem::Byte(
+            ByteContent::default()
+                .set_indefinite(true)
+                .add_bytes(&[0x01, 0x02])
+                .add_bytes(&[0x03, 0x04, 0x05])
+                .clone(),
+        ),
     );
 }
 
@@ -163,7 +171,16 @@ fn text() {
     compare_cbor_value("62c3bc", "ü");
     compare_cbor_value("63e6b0b4", "水");
     compare_cbor_value("64f0908591", "𐅑");
-    decode_compare("7f657374726561646d696e67ff", "streaming");
+    compare_cbor_value(
+        "7f657374726561646d696e67ff",
+        DataItem::Text(
+            TextContent::default()
+                .set_indefinite(true)
+                .add_string("strea")
+                .add_string("ming")
+                .clone(),
+        ),
+    );
 }
 
 #[test]
@@ -172,7 +189,11 @@ fn array() {
     compare_cbor_value("83010203", vec![1u64, 2, 3]);
     compare_cbor_value::<Vec<DataItem>>(
         "8301820203820405",
-        vec![1u64.into(), vec![2u64, 3].into(), vec![4u64, 5u64].into()],
+        vec![
+            1u64.into(),
+            vec![2u64, 3u64].into(),
+            vec![4u64, 5u64].into(),
+        ],
     );
     compare_cbor_value(
         "98190102030405060708090a0b0c0d0e0f101112131415161718181819",
@@ -185,43 +206,77 @@ fn array() {
         "826161a161626163",
         vec!["a".into(), vec![("b", "c")].into()],
     );
-    decode_compare("9fff", Vec::<u64>::new());
-    decode_compare::<Vec<DataItem>>(
+    decode_compare("9fff", ArrayContent::default().set_indefinite(true).clone());
+    decode_compare(
         "9f018202039f0405ffff",
-        vec![1u64.into(), vec![2u64, 3].into(), vec![4u64, 5u64].into()],
+        ArrayContent::default()
+            .set_indefinite(true)
+            .set_content(&vec![
+                1u64.into(),
+                vec![2u64, 3u64].into(),
+                ArrayContent::default()
+                    .set_indefinite(true)
+                    .set_content(&[4u64.into(), 5u64.into()])
+                    .clone()
+                    .into(),
+            ])
+            .clone(),
     );
-    decode_compare::<Vec<DataItem>>(
+    decode_compare(
         "9f01820203820405ff",
-        vec![1u64.into(), vec![2u64, 3].into(), vec![4u64, 5u64].into()],
+        ArrayContent::default()
+            .set_indefinite(true)
+            .set_content(&[
+                1u64.into(),
+                vec![2u64, 3u64].into(),
+                vec![4u64, 5u64].into(),
+            ])
+            .clone(),
     );
     decode_compare::<Vec<DataItem>>(
         "83018202039f0405ff",
-        vec![1u64.into(), vec![2u64, 3].into(), vec![4u64, 5u64].into()],
+        vec![
+            1u64.into(),
+            vec![2u64, 3u64].into(),
+            ArrayContent::default()
+                .set_indefinite(true)
+                .set_content(&[4u64.into(), 5u64.into()])
+                .clone()
+                .into(),
+        ],
     );
     decode_compare::<Vec<DataItem>>(
         "83019f0203ff820405",
-        vec![1u64.into(), vec![2u64, 3].into(), vec![4u64, 5u64].into()],
-    );
-    decode_compare(
-        "9f0102030405060708090a0b0c0d0e0f101112131415161718181819ff",
         vec![
-            1u64, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-            24, 25,
+            1u64.into(),
+            ArrayContent::default()
+                .set_indefinite(true)
+                .set_content(&[2u64.into(), 3u64.into()])
+                .clone()
+                .into(),
+            vec![4u64, 5u64].into(),
         ],
     );
     decode_compare::<Vec<DataItem>>(
         "826161bf61626163ff",
-        vec!["a".into(), vec![("b", "c")].into()],
+        vec![
+            "a".into(),
+            MapContent::default()
+                .set_indefinite(true)
+                .set_content(&[("b".into(), "c".into())].into())
+                .clone()
+                .into(),
+        ],
     );
 }
 
 #[test]
 fn map() {
-    compare_cbor_value("a0", DataItem::Map(IndexMap::new()));
+    compare_cbor_value("a0", DataItem::Map(IndexMap::new().into()));
     compare_cbor_value("a201020304", vec![(1, 2), (3, 4)]);
     compare_cbor_value(
         "a26161016162820203",
-        vec![("a", DataItem::from(1)), ("b", vec![2u64, 3].into())],
+        vec![("a", DataItem::from(1)), ("b", vec![2u64, 3u64].into())],
     );
     compare_cbor_value(
         "a56161614161626142616361436164614461656145",
@@ -229,11 +284,36 @@ fn map() {
     );
     decode_compare(
         "bf61610161629f0203ffff",
-        vec![("a", DataItem::from(1)), ("b", vec![2u64, 3].into())],
+        MapContent::default()
+            .set_indefinite(true)
+            .set_content(
+                &[
+                    ("a".into(), DataItem::from(1)),
+                    (
+                        "b".into(),
+                        ArrayContent::default()
+                            .set_indefinite(true)
+                            .set_content(&[2u64.into(), 3u64.into()])
+                            .clone()
+                            .into(),
+                    ),
+                ]
+                .into(),
+            )
+            .clone(),
     );
     decode_compare(
         "bf6346756ef563416d7421ff",
-        vec![("Fun", DataItem::from(true)), ("Amt", DataItem::from(-2))],
+        MapContent::default()
+            .set_indefinite(true)
+            .set_content(
+                &[
+                    ("Fun".into(), DataItem::from(true)),
+                    ("Amt".into(), DataItem::from(-2)),
+                ]
+                .into(),
+            )
+            .clone(),
     );
 }
 
@@ -342,28 +422,31 @@ fn core_deterministic() {
         (DataItem::from("z"), "a".into()),
         (DataItem::from("aa"), DataItem::from(-1)),
         (
-            DataItem::Array(vec![100.into()]),
-            DataItem::Map(IndexMap::from_iter(vec![
-                (1_000_000.into(), "1020".into()),
-                (DataItem::from("z"), "a".into()),
-                (DataItem::from("aa"), 12.into()),
-            ])),
+            DataItem::Array(vec![100.into()].into()),
+            DataItem::Map(
+                IndexMap::from_iter(vec![
+                    (1_000_000.into(), "1020".into()),
+                    (DataItem::from("z"), "a".into()),
+                    (DataItem::from("aa"), 12.into()),
+                ])
+                .into(),
+            ),
         ),
         (
-            DataItem::Array(vec![DataItem::from(-1)]),
-            DataItem::Array(vec!["cbor".into(), "nano".into()]),
+            DataItem::Array(vec![DataItem::from(-1)].into()),
+            DataItem::Array(vec!["cbor".into(), "nano".into()].into()),
         ),
         (false.into(), 12.into()),
     ];
     let mut random_key_value = key_value_vec.clone();
     random_key_value.shuffle(&mut rand::rng());
     assert_ne!(key_value_vec, random_key_value);
-    let random_data_item = DataItem::Map(IndexMap::from_iter(random_key_value));
+    let random_data_item = DataItem::Map(IndexMap::from_iter(random_key_value).into());
     assert!(!random_data_item.is_deterministic(&DeterministicMode::Core));
     let deterministic = random_data_item.deterministic(&DeterministicMode::Core);
     assert!(deterministic.is_deterministic(&DeterministicMode::Core));
     assert_eq!(
-        DataItem::Map(IndexMap::from_iter(key_value_vec)),
+        DataItem::Map(IndexMap::from_iter(key_value_vec).into()),
         deterministic
     );
 }
@@ -377,73 +460,82 @@ fn length_core_deterministic() {
         (DataItem::from("z"), "a".into()),
         (DataItem::from("aa"), DataItem::from(-1)),
         (
-            DataItem::Array(vec![100.into()]),
-            DataItem::Map(IndexMap::from_iter(vec![
-                (1_000_000.into(), "1020".into()),
-                (DataItem::from("z"), "a".into()),
-                (DataItem::from("aa"), 12.into()),
-            ])),
+            DataItem::Array(vec![100.into()].into()),
+            DataItem::Map(
+                IndexMap::from_iter(vec![
+                    (1_000_000.into(), "1020".into()),
+                    (DataItem::from("z"), "a".into()),
+                    (DataItem::from("aa"), 12.into()),
+                ])
+                .into(),
+            ),
         ),
         (
-            DataItem::Array(vec![DataItem::from(-1)]),
-            DataItem::Array(vec!["cbor".into(), "nano".into()]),
+            DataItem::Array(vec![DataItem::from(-1)].into()),
+            DataItem::Array(vec!["cbor".into(), "nano".into()].into()),
         ),
         (false.into(), 12.into()),
     ];
     let mut random_key_value = key_value_vec.clone();
     random_key_value.shuffle(&mut rand::rng());
     assert_ne!(key_value_vec, random_key_value);
-    let random_data_item = DataItem::Map(IndexMap::from_iter(random_key_value));
+    let random_data_item = DataItem::Map(IndexMap::from_iter(random_key_value).into());
     assert!(!random_data_item.is_deterministic(&DeterministicMode::LengthFirst));
     let deterministic = random_data_item.deterministic(&DeterministicMode::LengthFirst);
     assert!(deterministic.is_deterministic(&DeterministicMode::LengthFirst));
     assert_eq!(
-        DataItem::Map(IndexMap::from_iter(key_value_vec)),
+        DataItem::Map(IndexMap::from_iter(key_value_vec).into()),
         deterministic
     );
 }
 
 #[test]
 fn map_index_verification() {
-    let key_value_vec = DataItem::Map(IndexMap::from_iter(vec![
-        (10.into(), "abc".into()),
-        (100.into(), "1020".into()),
-        (DataItem::from(-1), 12.into()),
-        (DataItem::from("z"), "a".into()),
-        (DataItem::from("aa"), DataItem::from(-1)),
-        (
-            DataItem::Array(vec![100.into()]),
-            DataItem::Map(IndexMap::from_iter(vec![
-                (1_000_000.into(), "1020".into()),
-                (DataItem::from("z"), "a".into()),
-                (DataItem::from("aa"), 12.into()),
-            ])),
-        ),
-        (
-            DataItem::Array(vec![DataItem::from(-1)]),
-            DataItem::Array(vec!["cbor".into(), "nano".into()]),
-        ),
-        (false.into(), 12.into()),
-    ]));
+    let key_value_vec = DataItem::Map(
+        IndexMap::from_iter(vec![
+            (10.into(), "abc".into()),
+            (100.into(), "1020".into()),
+            (DataItem::from(-1), 12.into()),
+            (DataItem::from("z"), "a".into()),
+            (DataItem::from("aa"), DataItem::from(-1)),
+            (
+                DataItem::Array(vec![100.into()].into()),
+                DataItem::Map(
+                    IndexMap::from_iter(vec![
+                        (1_000_000.into(), "1020".into()),
+                        (DataItem::from("z"), "a".into()),
+                        (DataItem::from("aa"), 12.into()),
+                    ])
+                    .into(),
+                ),
+            ),
+            (
+                DataItem::Array(vec![DataItem::from(-1)].into()),
+                DataItem::Array(vec!["cbor".into(), "nano".into()].into()),
+            ),
+            (false.into(), 12.into()),
+        ])
+        .into(),
+    );
     assert_eq!(key_value_vec[DataItem::from(10)], "abc".into());
     assert_eq!(key_value_vec[DataItem::from(-1)], 12.into());
     assert_eq!(
-        key_value_vec[DataItem::Array(vec![100.into()])][DataItem::from("z")],
+        key_value_vec[DataItem::Array(vec![100.into()].into())][DataItem::from("z")],
         "a".into()
     );
     assert_eq!(
-        key_value_vec[DataItem::Array(vec![DataItem::from(-1)])].get(0),
+        key_value_vec[DataItem::Array(vec![DataItem::from(-1)].into())].get(0),
         Some(&"cbor".into())
     );
 
     assert!(key_value_vec.get(DataItem::from(122)).is_none());
     assert!(
-        key_value_vec[DataItem::Array(vec![100.into()])]
+        key_value_vec[DataItem::Array(vec![100.into()].into())]
             .get(DataItem::from("y"))
             .is_none()
     );
     assert!(
-        key_value_vec[DataItem::Array(vec![DataItem::from(-1)])]
+        key_value_vec[DataItem::Array(vec![DataItem::from(-1)].into())]
             .get(20)
             .is_none()
     );
@@ -487,4 +579,12 @@ fn debug() {
         "{\"a\": \"A\", \"b\": \"B\", \"c\": \"C\", \"d\": \"D\", \"e\": \"E\"}",
         "a56161614161626142616361436164614461656145",
     );
+    debug_compare("(_ h'0102', h'030405')", "5f42010243030405ff");
+    debug_compare("(_ \"strea\", \"ming\")", "7f657374726561646d696e67ff");
+    debug_compare("[_ ]", "9fff");
+    debug_compare("[_ 1, [2, 3], [_ 4, 5]]", "9f018202039f0405ffff");
+    debug_compare("[_ 1, [2, 3], [_ 4, 5]]", "9f018202039f0405ffff");
+    debug_compare("[1, [_ 2, 3], [4, 5]]", "83019f0203ff820405");
+    debug_compare("{_ \"a\": 1, \"b\": [_ 2, 3]}", "bf61610161629f0203ffff");
+    debug_compare("[\"a\", {_ \"b\": \"c\"}]", "826161bf61626163ff");
 }

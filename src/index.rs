@@ -21,16 +21,14 @@ where
     /// use cbor_next::{DataItem, Get};
     /// use indexmap::IndexMap;
     ///
-    /// let array_value = DataItem::Array(vec![DataItem::Unsigned(10)]);
-    /// let map_value = DataItem::Map(IndexMap::from_iter(vec![(
-    ///     DataItem::Unsigned(10),
-    ///     DataItem::Text("abc".to_string()),
-    /// )]));
+    /// let array_value = DataItem::Array(vec![DataItem::Unsigned(10)].into());
+    /// let map_val = vec![(DataItem::Unsigned(10), DataItem::Text("abc".into()))];
+    /// let map_value = DataItem::from(map_val);
     /// assert_eq!(array_value.get(0), Some(&DataItem::Unsigned(10)));
     /// assert_eq!(array_value.get(2), None);
     /// assert_eq!(
     ///     map_value.get(DataItem::Unsigned(10)),
-    ///     Some(&DataItem::Text("abc".to_string()))
+    ///     Some(&DataItem::Text("abc".into()))
     /// );
     /// assert_eq!(map_value.get(DataItem::Unsigned(11)), None);
     /// ```
@@ -42,7 +40,7 @@ where
     /// use cbor_next::{DataItem, Get};
     /// use indexmap::IndexMap;
     ///
-    /// let mut array_value = DataItem::Array(vec![DataItem::Unsigned(10)]);
+    /// let mut array_value = DataItem::Array(vec![DataItem::Unsigned(10)].into());
     /// assert_eq!(array_value.get(0), Some(&DataItem::Unsigned(10)));
     /// *array_value.get_mut(0).unwrap() = DataItem::Unsigned(20);
     /// assert_eq!(array_value.get(0), Some(&DataItem::Unsigned(20)));
@@ -53,14 +51,14 @@ where
 impl Get<usize> for DataItem {
     fn get(&self, idx: usize) -> Option<&Self> {
         match self {
-            Self::Array(a) => a.get(idx),
+            Self::Array(a) => a.array().get(idx),
             _ => None,
         }
     }
 
     fn get_mut(&mut self, idx: usize) -> Option<&mut Self> {
         match self {
-            Self::Array(a) => a.get_mut(idx),
+            Self::Array(a) => a.array_mut().get_mut(idx),
             _ => None,
         }
     }
@@ -69,14 +67,14 @@ impl Get<usize> for DataItem {
 impl Get<DataItem> for DataItem {
     fn get(&self, idx: DataItem) -> Option<&Self> {
         match self {
-            Self::Map(a) => a.get(&idx),
+            Self::Map(m) => m.map().get(&idx),
             _ => None,
         }
     }
 
     fn get_mut(&mut self, idx: DataItem) -> Option<&mut Self> {
         match self {
-            Self::Map(a) => a.get_mut(&idx),
+            Self::Map(m) => m.map_mut().get_mut(&idx),
             _ => None,
         }
     }

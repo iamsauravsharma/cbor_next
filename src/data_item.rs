@@ -1,16 +1,16 @@
 use core::f64;
 use std::cmp::Ordering;
 use std::convert::Into;
-use std::fmt::Debug;
+use std::fmt::{Debug, Write};
 use std::hash::Hash;
 use std::num::TryFromIntError;
 use std::slice::Iter;
 
 use indexmap::IndexMap;
 
+use crate::content::{ArrayContent, ByteContent, MapContent, SimpleValue, TextContent};
 use crate::deterministic::DeterministicMode;
 use crate::error::Error;
-use crate::simple_number::SimpleNumber;
 
 /// Enum representing different types of data item that can be encoded or
 /// decoded in `CBOR` (Concise Binary Object Representation).
@@ -35,19 +35,19 @@ pub enum DataItem {
     /// Byte string represented by `CBOR` major type 2.
     ///
     /// Contains an arbitrary sequence of bytes.
-    Byte(Vec<u8>),
+    Byte(ByteContent),
     /// UTF-8 string (text string) represented by `CBOR` major type 3.
     ///
     /// Contains a sequence of Unicode characters encoded as UTF-8.
-    Text(String),
+    Text(TextContent),
     /// Array of `CBOR` data items represented by `CBOR` major type 4.
     ///
     /// An ordered sequence of zero or more `CBOR` data items.
-    Array(Vec<DataItem>),
+    Array(ArrayContent),
     /// Map of `CBOR` key-value pairs represented by `CBOR` major type 5.
     ///
     /// Keys within a map must be unique
-    Map(IndexMap<DataItem, DataItem>),
+    Map(MapContent),
     /// Tagged item (semantic tag) represented by `CBOR` major type 6.
     ///
     /// Consists of an unsigned integer (the tag) and a single `CBOR` data item
@@ -81,7 +81,7 @@ pub enum DataItem {
     /// `Boolean`, `Null`, `Undefined`, or `Floating`. These generic simple
     /// values have a numerical representation as defined in the `CBOR`
     /// specification.
-    GenericSimple(SimpleNumber),
+    GenericSimple(SimpleValue),
 }
 
 impl Debug for DataItem {
@@ -104,28 +104,65 @@ impl Debug for DataItem {
             Self::Undefined => write!(f, "undefined"),
             Self::GenericSimple(simple_number) => simple_number.fmt(f),
             Self::Byte(bytes) => {
-                write!(f, "h'")?;
-                for byte in bytes {
-                    write!(f, "{byte:02x}")?;
+                if bytes.is_indefinite() {
+                    write!(f, "(_ ")?;
+                    let mut chunk_contents = vec![];
+                    for chunk in bytes.chunk() {
+                        let mut content = "h'".to_string();
+                        for byte in chunk {
+                            write!(content, "{byte:02x}")?;
+                        }
+                        content.push('\'');
+                        chunk_contents.push(content);
+                    }
+                    let content = chunk_contents.join(", ");
+                    write!(f, "{content}")?;
+                    write!(f, ")")
+                } else {
+                    write!(f, "h'")?;
+                    for byte in bytes.full() {
+                        write!(f, "{byte:02x}")?;
+                    }
+                    write!(f, "'")
                 }
-                write!(f, "'")
             }
-            Self::Text(text_string) => text_string.fmt(f),
+            Self::Text(text_content) => {
+                if text_content.is_indefinite() {
+                    write!(f, "(_ ")?;
+                    let mut chunk_contents = vec![];
+                    for chunk in text_content.chunk() {
+                        chunk_contents.push(format!("{chunk:?}"));
+                    }
+                    let content = chunk_contents.join(", ");
+                    write!(f, "{content}")?;
+                    write!(f, ")")
+                } else {
+                    write!(f, "{:?}", text_content.full())
+                }
+            }
             Self::Array(array) => {
                 let mut array_item_vec = vec![];
-                for item in array {
+                for item in array.array() {
                     array_item_vec.push(format!("{item:?}"));
                 }
                 let array_item_str = array_item_vec.join(", ");
-                write!(f, "[{array_item_str}]")
+                if array.is_indefinite() {
+                    write!(f, "[_ {array_item_str}]")
+                } else {
+                    write!(f, "[{array_item_str}]")
+                }
             }
             Self::Map(map) => {
                 let mut array_item_vec = vec![];
-                for (key, value) in map {
+                for (key, value) in map.map() {
                     array_item_vec.push(format!("{key:?}: {value:?}"));
                 }
                 let array_item_str = array_item_vec.join(", ");
-                write!(f, "{{{array_item_str}}}")
+                if map.is_indefinite() {
+                    write!(f, "{{_ {array_item_str}}}")
+                } else {
+                    write!(f, "{{{array_item_str}}}")
+                }
             }
             Self::Tag(tag_number, internal_val) => {
                 write!(f, "{tag_number:?}({internal_val:?})")
@@ -143,7 +180,8 @@ impl Hash for DataItem {
             Self::Text(text) => text.hash(state),
             Self::Array(values) => values.hash(state),
             Self::Map(index_map) => {
-                let vals = index_map.iter().collect::<Vec<(_, _)>>();
+                index_map.is_indefinite().hash(state);
+                let vals = index_map.map().iter().collect::<Vec<(_, _)>>();
                 vals.hash(state);
             }
             Self::Tag(num, value) => {
@@ -219,19 +257,19 @@ impl TryFrom<i128> for DataItem {
 
 impl From<&[u8]> for DataItem {
     fn from(value: &[u8]) -> Self {
-        Self::Byte(value.to_vec())
+        Self::Byte(value.to_vec().into())
     }
 }
 
 impl From<String> for DataItem {
     fn from(value: String) -> Self {
-        Self::Text(value)
+        Self::Text(value.into())
     }
 }
 
 impl From<&str> for DataItem {
     fn from(value: &str) -> Self {
-        Self::Text(value.to_string())
+        Self::Text(value.into())
     }
 }
 
@@ -249,12 +287,24 @@ impl From<f64> for DataItem {
 
 impl_from!(f64, f32, half::f16);
 
+impl From<ArrayContent> for DataItem {
+    fn from(value: ArrayContent) -> Self {
+        Self::Array(value)
+    }
+}
+
 impl<T> From<Vec<T>> for DataItem
 where
     T: Into<DataItem>,
 {
     fn from(value: Vec<T>) -> Self {
-        Self::Array(value.into_iter().map(Into::into).collect())
+        ArrayContent::from(value.into_iter().map(Into::into).collect::<Vec<_>>()).into()
+    }
+}
+
+impl From<MapContent> for DataItem {
+    fn from(value: MapContent) -> Self {
+        Self::Map(value)
     }
 }
 
@@ -264,12 +314,13 @@ where
     U: Into<DataItem>,
 {
     fn from(value: Vec<(T, U)>) -> Self {
-        Self::Map(
+        MapContent::from(
             value
                 .into_iter()
                 .map(|(t, u)| (t.into(), u.into()))
-                .collect(),
+                .collect::<IndexMap<_, _>>(),
         )
+        .into()
     }
 }
 
@@ -315,7 +366,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert!(DataItem::Byte(vec![65, 63, 62]).is_byte());
+    /// assert!(DataItem::Byte(vec![65, 63, 62].into()).is_byte());
     /// ```
     #[must_use]
     pub fn is_byte(&self) -> bool {
@@ -328,7 +379,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert!(DataItem::Text("example".to_string()).is_text());
+    /// assert!(DataItem::Text("example".into()).is_text());
     /// ```
     #[must_use]
     pub fn is_text(&self) -> bool {
@@ -341,7 +392,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert!(DataItem::Array(vec![12.into()]).is_array());
+    /// assert!(DataItem::Array(vec![12.into()].into()).is_array());
     /// ```
     #[must_use]
     pub fn is_array(&self) -> bool {
@@ -355,7 +406,7 @@ impl DataItem {
     /// use cbor_next::DataItem;
     /// use indexmap::IndexMap;
     ///
-    /// assert!(DataItem::Map(IndexMap::new()).is_map());
+    /// assert!(DataItem::Map(IndexMap::new().into()).is_map());
     /// ```
     #[must_use]
     pub fn is_map(&self) -> bool {
@@ -426,9 +477,9 @@ impl DataItem {
     /// Is a simple value?
     /// # Example
     /// ```
-    /// use cbor_next::{DataItem, SimpleNumber};
+    /// use cbor_next::{DataItem, SimpleValue};
     ///
-    /// assert!(DataItem::GenericSimple(SimpleNumber::try_from(45).unwrap()).is_simple());
+    /// assert!(DataItem::GenericSimple(SimpleValue::try_from(45).unwrap()).is_simple());
     /// ```
     #[must_use]
     pub fn is_simple(&self) -> bool {
@@ -441,9 +492,9 @@ impl DataItem {
     /// Is a generic simple value?
     /// # Example
     /// ```
-    /// use cbor_next::{DataItem, SimpleNumber};
+    /// use cbor_next::{DataItem, SimpleValue};
     ///
-    /// assert!(DataItem::GenericSimple(SimpleNumber::try_from(45).unwrap()).is_generic_simple());
+    /// assert!(DataItem::GenericSimple(SimpleValue::try_from(45).unwrap()).is_generic_simple());
     /// ```
     #[must_use]
     pub fn is_generic_simple(&self) -> bool {
@@ -517,12 +568,15 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert_eq!(DataItem::Byte(vec![0x6a]).as_byte(), Some(&vec![0x6a]));
+    /// assert_eq!(
+    ///     DataItem::Byte(vec![0x6a].into()).as_byte(),
+    ///     Some(vec![0x6a])
+    /// );
     /// ```
     #[must_use]
-    pub fn as_byte(&self) -> Option<&Vec<u8>> {
+    pub fn as_byte(&self) -> Option<Vec<u8>> {
         match self {
-            Self::Byte(byte) => Some(byte),
+            Self::Byte(byte) => Some(byte.full()),
             _ => None,
         }
     }
@@ -533,12 +587,15 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert_eq!(DataItem::Text("cbor".to_string()).as_text(), Some("cbor"));
+    /// assert_eq!(
+    ///     DataItem::Text("cbor".into()).as_text(),
+    ///     Some("cbor".to_string())
+    /// );
     /// ```
     #[must_use]
-    pub fn as_text(&self) -> Option<&str> {
+    pub fn as_text(&self) -> Option<String> {
         match self {
-            Self::Text(string) => Some(string),
+            Self::Text(text_content) => Some(text_content.full()),
             _ => None,
         }
     }
@@ -550,14 +607,16 @@ impl DataItem {
     /// use cbor_next::DataItem;
     ///
     /// assert_eq!(
-    ///     DataItem::Array(vec![12.into()]).as_array(),
-    ///     Some(&vec![12.into()])
+    ///     DataItem::from(vec![DataItem::from(12u64)])
+    ///         .as_array()
+    ///         .unwrap(),
+    ///     [12.into()]
     /// );
     /// ```
     #[must_use]
-    pub fn as_array(&self) -> Option<&Vec<DataItem>> {
+    pub fn as_array(&self) -> Option<&[DataItem]> {
         match self {
-            Self::Array(arr) => Some(arr),
+            Self::Array(arr) => Some(arr.array()),
             _ => None,
         }
     }
@@ -570,14 +629,14 @@ impl DataItem {
     /// use indexmap::IndexMap;
     ///
     /// assert_eq!(
-    ///     DataItem::Map(IndexMap::new()).as_map(),
+    ///     DataItem::Map(IndexMap::new().into()).as_map(),
     ///     Some(&IndexMap::new())
     /// );
     /// ```
     #[must_use]
     pub fn as_map(&self) -> Option<&IndexMap<DataItem, DataItem>> {
         match self {
-            Self::Map(map) => Some(map),
+            Self::Map(map) => Some(map.map()),
             _ => None,
         }
     }
@@ -637,17 +696,17 @@ impl DataItem {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::{DataItem, SimpleNumber};
+    /// use cbor_next::{DataItem, SimpleValue};
     ///
     /// assert_eq!(
-    ///     DataItem::GenericSimple(SimpleNumber::try_from(10).unwrap()).as_simple(),
+    ///     DataItem::GenericSimple(SimpleValue::try_from(10).unwrap()).as_simple(),
     ///     Some(10)
     /// );
     /// ```
     #[must_use]
     pub fn as_simple(&self) -> Option<u8> {
         match self {
-            Self::GenericSimple(num) => Some(num.val()),
+            Self::GenericSimple(num) => Some(**num),
             Self::Boolean(false) => Some(20),
             Self::Boolean(true) => Some(21),
             Self::Null => Some(22),
@@ -717,35 +776,66 @@ impl DataItem {
                 encode_u64_number(self.major_type(), *number)
             }
             Self::Byte(byte) => encode_vec_u8(self.major_type(), byte),
-            Self::Text(text_string) => encode_vec_u8(self.major_type(), text_string.as_bytes()),
+            Self::Text(text_content) => {
+                encode_vec_u8(self.major_type(), &text_content.clone().into())
+            }
             Self::Array(array) => {
-                let array_len = u64::try_from(array.len());
-                let mut array_bytes = if let Ok(length) = array_len {
-                    encode_u64_number(self.major_type(), length)
-                } else {
-                    vec![self.major_type() << 5 | 31]
-                };
-                for value in array {
-                    array_bytes.append(&mut value.encode());
-                }
-                if array_len.is_err() {
+                let mut array_bytes = vec![];
+                if array.is_indefinite() {
+                    array_bytes.push(self.major_type() << 5 | 31);
+                    for val in array.array() {
+                        array_bytes.append(&mut val.encode());
+                    }
                     array_bytes.push(255);
+                } else {
+                    let array_len = u64::try_from(array.array().len());
+                    if let Ok(length) = array_len {
+                        array_bytes.extend(encode_u64_number(self.major_type(), length));
+                        for val in array.array() {
+                            array_bytes.append(&mut val.encode());
+                        }
+                    } else {
+                        array_bytes.extend(
+                            Self::Array(
+                                ArrayContent::default()
+                                    .set_indefinite(true)
+                                    .set_content(array.array())
+                                    .clone(),
+                            )
+                            .encode(),
+                        );
+                    }
                 }
                 array_bytes
             }
             Self::Map(map) => {
-                let map_len = u64::try_from(map.len());
-                let mut map_bytes = if let Ok(length) = map_len {
-                    encode_u64_number(self.major_type(), length)
-                } else {
-                    vec![self.major_type() << 5 | 31]
-                };
-                for (key, value) in map {
-                    map_bytes.append(&mut key.encode());
-                    map_bytes.append(&mut value.encode());
-                }
-                if map_len.is_err() {
+                let mut map_bytes = vec![];
+                if map.is_indefinite() {
+                    map_bytes.push(self.major_type() << 5 | 31);
+                    for (key, value) in map.map() {
+                        map_bytes.append(&mut key.encode());
+                        map_bytes.append(&mut value.encode());
+                    }
                     map_bytes.push(255);
+                } else {
+                    let map_len = u64::try_from(map.map().len());
+                    if let Ok(length) = map_len {
+                        map_bytes.extend(encode_u64_number(self.major_type(), length));
+                        for (key, value) in map.map() {
+                            map_bytes.append(&mut key.encode());
+                            map_bytes.append(&mut value.encode());
+                        }
+                    } else {
+                        map_bytes.extend(
+                            Self::Map(
+                                MapContent::default()
+                                    .set_indefinite(true)
+                                    .set_content(map.map())
+                                    .clone(),
+                            )
+                            .encode(),
+                        );
+                    }
                 }
                 map_bytes
             }
@@ -796,9 +886,12 @@ impl DataItem {
     pub fn is_deterministic(&self, mode: &DeterministicMode) -> bool {
         match self {
             Self::Map(index_map) => {
-                index_map
-                    .iter()
-                    .zip(index_map.iter().skip(1))
+                if index_map.is_indefinite() {
+                    return false;
+                }
+                let map = index_map.map();
+                map.iter()
+                    .zip(map.iter().skip(1))
                     .all(|((k1, _), (k2, _))| {
                         let key1_encode = k1.encode();
                         let key2_encode = k2.encode();
@@ -814,8 +907,15 @@ impl DataItem {
                         }
                     })
             }
-            Self::Array(val) => val.iter().all(|v| v.is_deterministic(mode)),
+            Self::Array(val) => {
+                if val.is_indefinite() {
+                    return false;
+                }
+                val.array().iter().all(|v| v.is_deterministic(mode))
+            }
             Self::Tag(_, val) => val.is_deterministic(mode),
+            Self::Byte(byte_content) => !byte_content.is_indefinite(),
+            Self::Text(text_content) => !text_content.is_indefinite(),
             _ => true,
         }
     }
@@ -824,10 +924,11 @@ impl DataItem {
     #[must_use]
     pub fn deterministic(self, mode: &DeterministicMode) -> Self {
         match self {
-            Self::Map(index_map) => {
-                let mut data = index_map
-                    .into_iter()
-                    .map(|(k, v)| (k.deterministic(mode), v.deterministic(mode)))
+            Self::Map(map_content) => {
+                let mut data = map_content
+                    .map()
+                    .iter()
+                    .map(|(k, v)| (k.clone().deterministic(mode), v.clone().deterministic(mode)))
                     .collect::<Vec<(_, _)>>();
                 data.sort_by(|(k1, _), (k2, _)| {
                     let key1_encode = k1.encode();
@@ -844,12 +945,51 @@ impl DataItem {
                 });
                 let mut index_map = IndexMap::new();
                 index_map.extend(data);
-                Self::Map(index_map)
+                Self::Map(
+                    MapContent::default()
+                        .set_indefinite(false)
+                        .set_content(&index_map)
+                        .clone(),
+                )
             }
             Self::Array(val) => {
-                Self::Array(val.into_iter().map(|v| v.deterministic(mode)).collect())
+                Self::Array(
+                    ArrayContent::default()
+                        .set_indefinite(false)
+                        .set_content(
+                            &val.array()
+                                .iter()
+                                .map(|v| v.clone().deterministic(mode))
+                                .collect::<Vec<_>>(),
+                        )
+                        .clone(),
+                )
             }
             Self::Tag(tag_num, val) => Self::Tag(tag_num, Box::new(val.deterministic(mode))),
+            Self::Byte(byte_content) => {
+                if byte_content.is_indefinite() {
+                    Self::Byte(
+                        ByteContent::default()
+                            .set_indefinite(false)
+                            .add_bytes(&byte_content.full())
+                            .clone(),
+                    )
+                } else {
+                    Self::Byte(byte_content)
+                }
+            }
+            Self::Text(text_content) => {
+                if text_content.is_indefinite() {
+                    Self::Text(
+                        TextContent::default()
+                            .set_indefinite(false)
+                            .add_string(&text_content.full())
+                            .clone(),
+                    )
+                } else {
+                    Self::Text(text_content)
+                }
+            }
             _ => self,
         }
     }
@@ -898,16 +1038,33 @@ fn encode_u64_number(major_type: u8, number: u64) -> Vec<u8> {
     cbor_representation
 }
 
-fn encode_vec_u8(major_type: u8, byte: &[u8]) -> Vec<u8> {
-    let byte_length = u64::try_from(byte.len());
-    let mut bytes = if let Ok(length) = byte_length {
-        encode_u64_number(major_type, length)
-    } else {
-        vec![major_type << 5 | 31]
-    };
-    bytes.append(&mut byte.to_vec());
-    if byte_length.is_err() {
+fn encode_vec_u8(major_type: u8, byte: &ByteContent) -> Vec<u8> {
+    let mut bytes = vec![];
+    if byte.is_indefinite() {
+        bytes.push(major_type << 5 | 31);
+        for chunk in byte.chunk() {
+            let mut encoded_fixed_length = encode_vec_u8(
+                major_type,
+                ByteContent::default()
+                    .set_indefinite(false)
+                    .set_bytes(chunk),
+            );
+            bytes.append(&mut encoded_fixed_length);
+        }
         bytes.push(255);
+    } else {
+        let byte_length = u64::try_from(byte.full().len());
+        if let Ok(length) = byte_length {
+            bytes.append(&mut encode_u64_number(major_type, length));
+            bytes.append(&mut byte.full().clone());
+        } else {
+            bytes.append(&mut encode_vec_u8(
+                major_type,
+                ByteContent::default()
+                    .set_indefinite(true)
+                    .set_bytes(&byte.full()),
+            ));
+        }
     }
     bytes
 }
@@ -956,9 +1113,9 @@ fn decode_value(iter: &mut Iter<'_, u8>) -> Result<DataItem, Error> {
             )?))
         }
         3 => {
-            Ok(DataItem::Text(String::from_utf8(decode_byte_or_text(
-                major_type, additional, iter,
-            )?)?))
+            Ok(DataItem::Text(
+                decode_byte_or_text(major_type, additional, iter)?.try_into()?,
+            ))
         }
         4 => decode_array(additional, iter),
         5 => decode_map(additional, iter),
@@ -976,21 +1133,25 @@ fn decode_byte_or_text(
     major_type: u8,
     additional: u8,
     iter: &mut Iter<'_, u8>,
-) -> Result<Vec<u8>, Error> {
+) -> Result<ByteContent, Error> {
     let length = extract_optional_number(additional, iter)?;
-    let mut val_vec = vec![];
+    let mut byte_content = ByteContent::default();
     if let Some(num) = length {
-        val_vec.append(&mut collect_vec_u8(iter, num)?);
+        byte_content.set_indefinite(false);
+        byte_content.set_bytes(&collect_vec_u8(iter, num)?);
     } else {
-        val_vec.append(&mut decode_finite_byte_or_text(major_type, iter)?);
+        byte_content.set_indefinite(true);
+        byte_content.extend_bytes(&decode_indefinite_byte_or_text(major_type, iter)?);
         iter.next();
     }
-    Ok(val_vec)
+    Ok(byte_content)
 }
 
 fn decode_array(additional: u8, iter: &mut Iter<'_, u8>) -> Result<DataItem, Error> {
     let length = extract_optional_number(additional, iter)?;
     let mut val_vec = vec![];
+    let mut array_content = ArrayContent::default();
+    array_content.set_indefinite(length.is_none());
     if let Some(num) = length {
         for _ in 0..num {
             val_vec.push(decode_value(iter)?);
@@ -1007,12 +1168,14 @@ fn decode_array(additional: u8, iter: &mut Iter<'_, u8>) -> Result<DataItem, Err
             _ => unreachable!("non 255 some value should be handled already"),
         }
     }
-    Ok(DataItem::Array(val_vec))
+    Ok(DataItem::Array(array_content.set_content(&val_vec).clone()))
 }
 
 fn decode_map(additional: u8, iter: &mut Iter<'_, u8>) -> Result<DataItem, Error> {
     let length: Option<u64> = extract_optional_number(additional, iter)?;
     let mut map_index_map = IndexMap::new();
+    let mut map_content = MapContent::default();
+    map_content.set_indefinite(length.is_none());
     if let Some(num) = length {
         for _ in 0..num {
             let key = decode_value(iter)?;
@@ -1035,7 +1198,9 @@ fn decode_map(additional: u8, iter: &mut Iter<'_, u8>) -> Result<DataItem, Error
             _ => unreachable!("non 255 some value should be handled already"),
         }
     }
-    Ok(DataItem::Map(map_index_map))
+    Ok(DataItem::Map(
+        map_content.set_content(&map_index_map).clone(),
+    ))
 }
 
 fn decode_simple_or_floating(additional: u8, iter: &mut Iter<'_, u8>) -> Result<DataItem, Error> {
@@ -1084,10 +1249,10 @@ fn decode_simple_or_floating(additional: u8, iter: &mut Iter<'_, u8>) -> Result<
     }
 }
 
-fn decode_finite_byte_or_text(
+fn decode_indefinite_byte_or_text(
     expected_major_type: u8,
     iter: &mut Iter<'_, u8>,
-) -> Result<Vec<u8>, Error> {
+) -> Result<Vec<Vec<u8>>, Error> {
     let mut result = vec![];
     if let Some(peek_val) = iter.clone().next() {
         if *peek_val == 255 {
@@ -1103,8 +1268,8 @@ fn decode_finite_byte_or_text(
         }
         let additional = initial_info & 0b0001_1111;
         let length = extract_number(additional, iter)?;
-        result.extend(collect_vec_u8(iter, length)?);
-        result.extend(decode_finite_byte_or_text(expected_major_type, iter)?);
+        result.push(collect_vec_u8(iter, length)?);
+        result.extend(decode_indefinite_byte_or_text(expected_major_type, iter)?);
         return Ok(result);
     }
     Err(Error::IncompleteIndefinite)
