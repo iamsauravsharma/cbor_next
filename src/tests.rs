@@ -4,7 +4,7 @@ use std::vec;
 use indexmap::IndexMap;
 use rand::seq::SliceRandom;
 
-use crate::content::{ArrayContent, ByteContent, MapContent, TextContent};
+use crate::content::{ArrayContent, ByteContent, MapContent, TagContent, TextContent};
 use crate::data_item::DataItem;
 use crate::deterministic::DeterministicMode;
 use crate::error::Error;
@@ -112,37 +112,28 @@ fn simple() {
 fn tag() {
     compare_cbor_value(
         "c074323031332d30332d32315432303a30343a30305a",
-        DataItem::Tag(0, Box::new("2013-03-21T20:04:00Z".into())),
+        TagContent::from((0, "2013-03-21T20:04:00Z")),
     );
     compare_cbor_value(
         "c074323031332d30332d32315432303a30343a30305a",
-        DataItem::Tag(0, Box::new("2013-03-21T20:04:00Z".into())),
+        TagContent::from((0, "2013-03-21T20:04:00Z")),
     );
-    compare_cbor_value(
-        "c11a514b67b0",
-        DataItem::Tag(1, Box::new(1_363_896_240.into())),
-    );
+    compare_cbor_value("c11a514b67b0", TagContent::from((1, 1_363_896_240)));
     compare_cbor_value(
         "c1fb41d452d9ec200000",
-        DataItem::Tag(1, Box::new(1_363_896_240.5.into())),
+        TagContent::from((1, 1_363_896_240.5)),
     );
     compare_cbor_value(
         "d74401020304",
-        DataItem::Tag(
-            23,
-            Box::new(hex::decode("01020304").unwrap().as_slice().into()),
-        ),
+        TagContent::from((23, hex::decode("01020304").unwrap().as_slice())),
     );
     compare_cbor_value(
         "d818456449455446",
-        DataItem::Tag(
-            24,
-            Box::new(hex::decode("6449455446").unwrap().as_slice().into()),
-        ),
+        TagContent::from((24, hex::decode("6449455446").unwrap().as_slice())),
     );
     compare_cbor_value(
         "d82076687474703a2f2f7777772e6578616d706c652e636f6d",
-        DataItem::Tag(32, Box::new("http://www.example.com".into())),
+        TagContent::from((32, "http://www.example.com")),
     );
 }
 
@@ -186,37 +177,33 @@ fn text() {
 #[test]
 fn array() {
     compare_cbor_value("80", Vec::<u64>::new());
-    compare_cbor_value("83010203", vec![1u64, 2, 3]);
+    compare_cbor_value("83010203", vec![1, 2, 3]);
     compare_cbor_value::<Vec<DataItem>>(
         "8301820203820405",
-        vec![
-            1u64.into(),
-            vec![2u64, 3u64].into(),
-            vec![4u64, 5u64].into(),
-        ],
+        vec![1.into(), vec![2, 3].into(), vec![4, 5].into()],
     );
     compare_cbor_value(
         "98190102030405060708090a0b0c0d0e0f101112131415161718181819",
         vec![
-            1u64, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-            24, 25,
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+            25,
         ],
     );
     compare_cbor_value::<Vec<DataItem>>(
         "826161a161626163",
-        vec!["a".into(), vec![("b", "c")].into()],
+        vec!["a".into(), IndexMap::from_iter(vec![("b", "c")]).into()],
     );
     decode_compare("9fff", ArrayContent::default().set_indefinite(true).clone());
     decode_compare(
         "9f018202039f0405ffff",
         ArrayContent::default()
             .set_indefinite(true)
-            .set_content(&vec![
-                1u64.into(),
-                vec![2u64, 3u64].into(),
+            .set_content::<DataItem>(&vec![
+                1.into(),
+                vec![2, 3].into(),
                 ArrayContent::default()
                     .set_indefinite(true)
-                    .set_content(&[4u64.into(), 5u64.into()])
+                    .set_content(&[4, 5])
                     .clone()
                     .into(),
             ])
@@ -226,21 +213,17 @@ fn array() {
         "9f01820203820405ff",
         ArrayContent::default()
             .set_indefinite(true)
-            .set_content(&[
-                1u64.into(),
-                vec![2u64, 3u64].into(),
-                vec![4u64, 5u64].into(),
-            ])
+            .set_content::<DataItem>(&[1.into(), vec![2, 3].into(), vec![4, 5].into()])
             .clone(),
     );
     decode_compare::<Vec<DataItem>>(
         "83018202039f0405ff",
         vec![
-            1u64.into(),
-            vec![2u64, 3u64].into(),
+            1.into(),
+            vec![2, 3].into(),
             ArrayContent::default()
                 .set_indefinite(true)
-                .set_content(&[4u64.into(), 5u64.into()])
+                .set_content(&[4, 5])
                 .clone()
                 .into(),
         ],
@@ -248,13 +231,13 @@ fn array() {
     decode_compare::<Vec<DataItem>>(
         "83019f0203ff820405",
         vec![
-            1u64.into(),
+            1.into(),
             ArrayContent::default()
                 .set_indefinite(true)
-                .set_content(&[2u64.into(), 3u64.into()])
+                .set_content(&[2, 3])
                 .clone()
                 .into(),
-            vec![4u64, 5u64].into(),
+            vec![4, 5].into(),
         ],
     );
     decode_compare::<Vec<DataItem>>(
@@ -263,7 +246,7 @@ fn array() {
             "a".into(),
             MapContent::default()
                 .set_indefinite(true)
-                .set_content(&[("b".into(), "c".into())].into())
+                .set_content(&[("b", "c")].into())
                 .clone()
                 .into(),
         ],
@@ -272,11 +255,14 @@ fn array() {
 
 #[test]
 fn map() {
-    compare_cbor_value("a0", DataItem::Map(IndexMap::new().into()));
+    compare_cbor_value(
+        "a0",
+        DataItem::Map(IndexMap::<DataItem, DataItem>::new().into()),
+    );
     compare_cbor_value("a201020304", vec![(1, 2), (3, 4)]);
     compare_cbor_value(
         "a26161016162820203",
-        vec![("a", DataItem::from(1)), ("b", vec![2u64, 3u64].into())],
+        vec![("a", DataItem::from(1)), ("b", vec![2, 3].into())],
     );
     compare_cbor_value(
         "a56161614161626142616361436164614461656145",
@@ -286,14 +272,14 @@ fn map() {
         "bf61610161629f0203ffff",
         MapContent::default()
             .set_indefinite(true)
-            .set_content(
+            .set_content::<DataItem, DataItem>(
                 &[
                     ("a".into(), DataItem::from(1)),
                     (
                         "b".into(),
                         ArrayContent::default()
                             .set_indefinite(true)
-                            .set_content(&[2u64.into(), 3u64.into()])
+                            .set_content(&[2, 3])
                             .clone()
                             .into(),
                     ),
@@ -306,13 +292,7 @@ fn map() {
         "bf6346756ef563416d7421ff",
         MapContent::default()
             .set_indefinite(true)
-            .set_content(
-                &[
-                    ("Fun".into(), DataItem::from(true)),
-                    ("Amt".into(), DataItem::from(-2)),
-                ]
-                .into(),
-            )
+            .set_content(&[("Fun", DataItem::from(true)), ("Amt", DataItem::from(-2))].into())
             .clone(),
     );
 }
@@ -422,19 +402,16 @@ fn core_deterministic() {
         (DataItem::from("z"), "a".into()),
         (DataItem::from("aa"), DataItem::from(-1)),
         (
-            DataItem::Array(vec![100.into()].into()),
-            DataItem::Map(
-                IndexMap::from_iter(vec![
-                    (1_000_000.into(), "1020".into()),
-                    (DataItem::from("z"), "a".into()),
-                    (DataItem::from("aa"), 12.into()),
-                ])
-                .into(),
-            ),
+            DataItem::from(vec![100]),
+            DataItem::from(vec![
+                (1_000_000.into(), DataItem::from("1020")),
+                (DataItem::from("z"), "a".into()),
+                (DataItem::from("aa"), 12.into()),
+            ]),
         ),
         (
-            DataItem::Array(vec![DataItem::from(-1)].into()),
-            DataItem::Array(vec!["cbor".into(), "nano".into()].into()),
+            DataItem::from(vec![DataItem::from(-1)]),
+            DataItem::from(vec!["cbor", "nano"]),
         ),
         (false.into(), 12.into()),
     ];
@@ -460,19 +437,16 @@ fn length_core_deterministic() {
         (DataItem::from("z"), "a".into()),
         (DataItem::from("aa"), DataItem::from(-1)),
         (
-            DataItem::Array(vec![100.into()].into()),
-            DataItem::Map(
-                IndexMap::from_iter(vec![
-                    (1_000_000.into(), "1020".into()),
-                    (DataItem::from("z"), "a".into()),
-                    (DataItem::from("aa"), 12.into()),
-                ])
-                .into(),
-            ),
+            DataItem::from(vec![100]),
+            DataItem::from(vec![
+                (1_000_000.into(), DataItem::from("1020")),
+                (DataItem::from("z"), "a".into()),
+                (DataItem::from("aa"), 12.into()),
+            ]),
         ),
         (
-            DataItem::Array(vec![DataItem::from(-1)].into()),
-            DataItem::Array(vec!["cbor".into(), "nano".into()].into()),
+            DataItem::from(vec![DataItem::from(-1)]),
+            DataItem::from(vec!["cbor", "nano"]),
         ),
         (false.into(), 12.into()),
     ];
@@ -499,19 +473,16 @@ fn map_index_verification() {
             (DataItem::from("z"), "a".into()),
             (DataItem::from("aa"), DataItem::from(-1)),
             (
-                DataItem::Array(vec![100.into()].into()),
-                DataItem::Map(
-                    IndexMap::from_iter(vec![
-                        (1_000_000.into(), "1020".into()),
-                        (DataItem::from("z"), "a".into()),
-                        (DataItem::from("aa"), 12.into()),
-                    ])
-                    .into(),
-                ),
+                DataItem::from(vec![100]),
+                DataItem::from(vec![
+                    (1_000_000.into(), DataItem::from("1020")),
+                    (DataItem::from("z"), "a".into()),
+                    (DataItem::from("aa"), 12.into()),
+                ]),
             ),
             (
-                DataItem::Array(vec![DataItem::from(-1)].into()),
-                DataItem::Array(vec!["cbor".into(), "nano".into()].into()),
+                DataItem::from(vec![DataItem::from(-1)]),
+                DataItem::from(vec!["cbor", "nano"]),
             ),
             (false.into(), 12.into()),
         ])
@@ -520,22 +491,22 @@ fn map_index_verification() {
     assert_eq!(key_value_vec[DataItem::from(10)], "abc".into());
     assert_eq!(key_value_vec[DataItem::from(-1)], 12.into());
     assert_eq!(
-        key_value_vec[DataItem::Array(vec![100.into()].into())][DataItem::from("z")],
+        key_value_vec[DataItem::from(vec![100])][DataItem::from("z")],
         "a".into()
     );
     assert_eq!(
-        key_value_vec[DataItem::Array(vec![DataItem::from(-1)].into())].get(0),
+        key_value_vec[DataItem::from(vec![DataItem::from(-1)])].get(0),
         Some(&"cbor".into())
     );
 
     assert!(key_value_vec.get(DataItem::from(122)).is_none());
     assert!(
-        key_value_vec[DataItem::Array(vec![100.into()].into())]
+        key_value_vec[DataItem::from(vec![100])]
             .get(DataItem::from("y"))
             .is_none()
     );
     assert!(
-        key_value_vec[DataItem::Array(vec![DataItem::from(-1)].into())]
+        key_value_vec[DataItem::from(vec![DataItem::from(-1)])]
             .get(20)
             .is_none()
     );

@@ -1,3 +1,4 @@
+use std::convert::Into;
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::string::FromUtf8Error;
@@ -193,11 +194,14 @@ pub struct ArrayContent {
     array: Vec<DataItem>,
 }
 
-impl From<Vec<DataItem>> for ArrayContent {
-    fn from(value: Vec<DataItem>) -> Self {
+impl<T> From<Vec<T>> for ArrayContent
+where
+    T: Into<DataItem>,
+{
+    fn from(value: Vec<T>) -> Self {
         Self {
             is_indefinite: false,
-            array: value,
+            array: value.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -210,8 +214,11 @@ impl ArrayContent {
     }
 
     /// Set value to a content by overriding old value
-    pub fn set_content(&mut self, array: &[DataItem]) -> &mut Self {
-        self.array = array.to_vec();
+    pub fn set_content<T>(&mut self, array: &[T]) -> &mut Self
+    where
+        T: Into<DataItem> + Clone,
+    {
+        self.array = array.iter().map(Into::into).collect();
         self
     }
 
@@ -251,11 +258,18 @@ pub struct MapContent {
     map: IndexMap<DataItem, DataItem>,
 }
 
-impl From<IndexMap<DataItem, DataItem>> for MapContent {
-    fn from(value: IndexMap<DataItem, DataItem>) -> Self {
+impl<T, U> From<IndexMap<T, U>> for MapContent
+where
+    T: Into<DataItem>,
+    U: Into<DataItem>,
+{
+    fn from(value: IndexMap<T, U>) -> Self {
         Self {
             is_indefinite: false,
-            map: value,
+            map: value
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
         }
     }
 }
@@ -268,8 +282,12 @@ impl MapContent {
     }
 
     /// Set value to a content by overriding old value
-    pub fn set_content(&mut self, map: &IndexMap<DataItem, DataItem>) -> &mut Self {
-        self.map.clone_from(map);
+    pub fn set_content<K, V>(&mut self, map: &IndexMap<K, V>) -> &mut Self
+    where
+        K: Into<DataItem> + Clone,
+        V: Into<DataItem> + Clone,
+    {
+        self.map = map.iter().map(|(k, v)| (k.into(), v.into())).collect();
         self
     }
 
@@ -289,6 +307,41 @@ impl MapContent {
     #[must_use]
     pub fn map_mut(&mut self) -> &mut IndexMap<DataItem, DataItem> {
         &mut self.map
+    }
+}
+
+/// enum representing a tag in form of u64 and data item
+#[derive(PartialEq, Clone)]
+#[non_exhaustive]
+pub enum TagContent {
+    /// Tag currently unknown to a system
+    Unknown(u64, Box<DataItem>),
+}
+
+impl<T> From<(u64, T)> for TagContent
+where
+    T: Into<DataItem>,
+{
+    fn from((number, data): (u64, T)) -> Self {
+        Self::Unknown(number, Box::new(data.into()))
+    }
+}
+
+impl TagContent {
+    /// Get a number of tag
+    #[must_use]
+    pub fn number(&self) -> u64 {
+        match self {
+            Self::Unknown(num, _) => *num,
+        }
+    }
+
+    /// Get a content of tag
+    #[must_use]
+    pub fn content(&self) -> &DataItem {
+        match self {
+            Self::Unknown(_, data_item) => data_item,
+        }
     }
 }
 

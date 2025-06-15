@@ -8,7 +8,7 @@ use std::slice::Iter;
 
 use indexmap::IndexMap;
 
-use crate::content::{ArrayContent, ByteContent, MapContent, SimpleValue, TextContent};
+use crate::content::{ArrayContent, ByteContent, MapContent, SimpleValue, TagContent, TextContent};
 use crate::deterministic::DeterministicMode;
 use crate::error::Error;
 
@@ -54,7 +54,7 @@ pub enum DataItem {
     /// (the tagged content). Tags provide semantic information about the
     /// enclosed data item, allowing for type extension
     /// or application-specific interpretations.
-    Tag(u64, Box<DataItem>),
+    Tag(TagContent),
     /// Boolean represented as a simple value within `CBOR` major type 7.
     ///
     /// Can be either `true` or `false`.
@@ -164,8 +164,8 @@ impl Debug for DataItem {
                     write!(f, "{{{array_item_str}}}")
                 }
             }
-            Self::Tag(tag_number, internal_val) => {
-                write!(f, "{tag_number:?}({internal_val:?})")
+            Self::Tag(tag_content) => {
+                write!(f, "{:?}({:?})", tag_content.number(), tag_content.content())
             }
         }
     }
@@ -184,9 +184,9 @@ impl Hash for DataItem {
                 let vals = index_map.map().iter().collect::<Vec<(_, _)>>();
                 vals.hash(state);
             }
-            Self::Tag(num, value) => {
-                num.hash(state);
-                value.hash(state);
+            Self::Tag(tag_content) => {
+                tag_content.number().hash(state);
+                tag_content.content().hash(state);
             }
             Self::Boolean(val) => val.hash(state),
             Self::Floating(val) => val.to_be_bytes().hash(state),
@@ -310,10 +310,20 @@ impl From<MapContent> for DataItem {
 
 impl<T, U> From<Vec<(T, U)>> for DataItem
 where
-    T: Into<DataItem>,
+    T: Into<DataItem> + Hash + Eq,
     U: Into<DataItem>,
 {
     fn from(value: Vec<(T, U)>) -> Self {
+        IndexMap::from_iter(value).into()
+    }
+}
+
+impl<T, U> From<IndexMap<T, U>> for DataItem
+where
+    T: Into<DataItem>,
+    U: Into<DataItem>,
+{
+    fn from(value: IndexMap<T, U>) -> Self {
         MapContent::from(
             value
                 .into_iter()
@@ -321,6 +331,18 @@ where
                 .collect::<IndexMap<_, _>>(),
         )
         .into()
+    }
+}
+
+impl From<TagContent> for DataItem {
+    fn from(value: TagContent) -> Self {
+        Self::Tag(value)
+    }
+}
+
+impl From<SimpleValue> for DataItem {
+    fn from(value: SimpleValue) -> Self {
+        Self::GenericSimple(value)
     }
 }
 
@@ -340,7 +362,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert!(DataItem::Unsigned(20).is_unsigned_integer());
+    /// assert!(DataItem::from(20).is_unsigned_integer());
     /// ```
     #[must_use]
     pub fn is_unsigned_integer(&self) -> bool {
@@ -366,7 +388,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert!(DataItem::Byte(vec![65, 63, 62].into()).is_byte());
+    /// assert!(DataItem::from(vec![65u8, 63, 62].as_slice()).is_byte());
     /// ```
     #[must_use]
     pub fn is_byte(&self) -> bool {
@@ -379,7 +401,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert!(DataItem::Text("example".into()).is_text());
+    /// assert!(DataItem::from("example").is_text());
     /// ```
     #[must_use]
     pub fn is_text(&self) -> bool {
@@ -392,7 +414,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert!(DataItem::Array(vec![12.into()].into()).is_array());
+    /// assert!(DataItem::from(vec![12]).is_array());
     /// ```
     #[must_use]
     pub fn is_array(&self) -> bool {
@@ -406,7 +428,7 @@ impl DataItem {
     /// use cbor_next::DataItem;
     /// use indexmap::IndexMap;
     ///
-    /// assert!(DataItem::Map(IndexMap::new().into()).is_map());
+    /// assert!(DataItem::from(IndexMap::from_iter(vec![(12, "a")])).is_map());
     /// ```
     #[must_use]
     pub fn is_map(&self) -> bool {
@@ -417,13 +439,13 @@ impl DataItem {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::DataItem;
+    /// use cbor_next::{DataItem, TagContent};
     ///
-    /// assert!(DataItem::Tag(12, Box::new(DataItem::Unsigned(20))).is_tag());
+    /// assert!(DataItem::from(TagContent::from((12, 20))).is_tag());
     /// ```
     #[must_use]
     pub fn is_tag(&self) -> bool {
-        matches!(self, Self::Tag(_, _))
+        matches!(self, Self::Tag(_))
     }
 
     /// Is a boolean value?
@@ -431,7 +453,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert!(DataItem::Boolean(false).is_boolean());
+    /// assert!(DataItem::from(false).is_boolean());
     /// ```
     #[must_use]
     pub fn is_boolean(&self) -> bool {
@@ -467,7 +489,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert!(DataItem::Floating(3.0).is_floating());
+    /// assert!(DataItem::from(3.0).is_floating());
     /// ```
     #[must_use]
     pub fn is_floating(&self) -> bool {
@@ -479,7 +501,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::{DataItem, SimpleValue};
     ///
-    /// assert!(DataItem::GenericSimple(SimpleValue::try_from(45).unwrap()).is_simple());
+    /// assert!(DataItem::from(SimpleValue::try_from(45).unwrap()).is_simple());
     /// ```
     #[must_use]
     pub fn is_simple(&self) -> bool {
@@ -494,7 +516,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::{DataItem, SimpleValue};
     ///
-    /// assert!(DataItem::GenericSimple(SimpleValue::try_from(45).unwrap()).is_generic_simple());
+    /// assert!(DataItem::from(SimpleValue::try_from(45).unwrap()).is_generic_simple());
     /// ```
     #[must_use]
     pub fn is_generic_simple(&self) -> bool {
@@ -509,13 +531,10 @@ impl DataItem {
     ///
     /// # Example
     /// ```rust
-    /// use cbor_next::DataItem;
+    /// use cbor_next::{DataItem, TagContent};
     ///
-    /// let tag = DataItem::Tag(
-    ///     20,
-    ///     Box::new(DataItem::Tag(30, Box::new(DataItem::Signed(20)))),
-    /// );
-    /// assert!(tag.check_inner(DataItem::is_signed_integer));
+    /// let tag = DataItem::from(TagContent::from((20, TagContent::from((30, "abc")))));
+    /// assert!(tag.check_inner(DataItem::is_text));
     /// ```
     ///
     /// # Note
@@ -525,7 +544,7 @@ impl DataItem {
     #[must_use]
     pub fn check_inner(&self, checker: impl Fn(&Self) -> bool) -> bool {
         match self {
-            Self::Tag(_, boxed_item) => boxed_item.check_inner(checker),
+            Self::Tag(tag_content) => tag_content.content().check_inner(checker),
             _ => checker(self),
         }
     }
@@ -536,7 +555,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert_eq!(DataItem::Unsigned(20).as_unsigned(), Some(20));
+    /// assert_eq!(DataItem::from(20).as_unsigned(), Some(20));
     /// ```
     #[must_use]
     pub fn as_unsigned(&self) -> Option<u64> {
@@ -552,7 +571,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert_eq!(DataItem::Signed(20).as_signed(), Some(-21));
+    /// assert_eq!(DataItem::from(-21).as_signed(), Some(-21));
     /// ```
     #[must_use]
     pub fn as_signed(&self) -> Option<i128> {
@@ -569,7 +588,7 @@ impl DataItem {
     /// use cbor_next::DataItem;
     ///
     /// assert_eq!(
-    ///     DataItem::Byte(vec![0x6a].into()).as_byte(),
+    ///     DataItem::from(vec![0x6a].as_slice()).as_byte(),
     ///     Some(vec![0x6a])
     /// );
     /// ```
@@ -587,10 +606,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert_eq!(
-    ///     DataItem::Text("cbor".into()).as_text(),
-    ///     Some("cbor".to_string())
-    /// );
+    /// assert_eq!(DataItem::from("cbor").as_text(), Some("cbor".to_string()));
     /// ```
     #[must_use]
     pub fn as_text(&self) -> Option<String> {
@@ -606,12 +622,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert_eq!(
-    ///     DataItem::from(vec![DataItem::from(12u64)])
-    ///         .as_array()
-    ///         .unwrap(),
-    ///     [12.into()]
-    /// );
+    /// assert_eq!(DataItem::from(vec![12u64]).as_array().unwrap(), [12.into()]);
     /// ```
     #[must_use]
     pub fn as_array(&self) -> Option<&[DataItem]> {
@@ -629,7 +640,7 @@ impl DataItem {
     /// use indexmap::IndexMap;
     ///
     /// assert_eq!(
-    ///     DataItem::Map(IndexMap::new().into()).as_map(),
+    ///     DataItem::from(IndexMap::<DataItem, DataItem>::new()).as_map(),
     ///     Some(&IndexMap::new())
     /// );
     /// ```
@@ -645,17 +656,17 @@ impl DataItem {
     ///
     /// # Example
     /// ```
-    /// use cbor_next::DataItem;
+    /// use cbor_next::{DataItem, TagContent};
     ///
     /// assert_eq!(
-    ///     DataItem::Tag(20, Box::new(DataItem::Signed(20))).as_tag(),
+    ///     DataItem::from(TagContent::from((20, -21))).as_tag(),
     ///     Some((20, &DataItem::Signed(20)))
     /// );
     /// ```
     #[must_use]
     pub fn as_tag(&self) -> Option<(u64, &DataItem)> {
         match self {
-            Self::Tag(tag_num, value) => Some((*tag_num, value)),
+            Self::Tag(tag_content) => Some((tag_content.number(), tag_content.content())),
             _ => None,
         }
     }
@@ -666,7 +677,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert_eq!(DataItem::Boolean(true).as_boolean(), Some(true));
+    /// assert_eq!(DataItem::from(true).as_boolean(), Some(true));
     /// ```
     #[must_use]
     pub fn as_boolean(&self) -> Option<bool> {
@@ -682,7 +693,7 @@ impl DataItem {
     /// ```
     /// use cbor_next::DataItem;
     ///
-    /// assert_eq!(DataItem::Floating(-20.0).as_floating(), Some(-20.0));
+    /// assert_eq!(DataItem::from(-20.0).as_floating(), Some(-20.0));
     /// ```
     #[must_use]
     pub fn as_floating(&self) -> Option<f64> {
@@ -699,7 +710,7 @@ impl DataItem {
     /// use cbor_next::{DataItem, SimpleValue};
     ///
     /// assert_eq!(
-    ///     DataItem::GenericSimple(SimpleValue::try_from(10).unwrap()).as_simple(),
+    ///     DataItem::from(SimpleValue::try_from(10).unwrap()).as_simple(),
     ///     Some(10)
     /// );
     /// ```
@@ -725,12 +736,9 @@ impl DataItem {
     ///
     /// # Example
     /// ```rust
-    /// use cbor_next::DataItem;
+    /// use cbor_next::{DataItem, TagContent};
     ///
-    /// let tag = DataItem::Tag(
-    ///     20,
-    ///     Box::new(DataItem::Tag(30, Box::new(DataItem::Signed(20)))),
-    /// );
+    /// let tag = DataItem::from(TagContent::from((20, TagContent::from((30, -21)))));
     /// let tag_unwrapped = tag.as_inner(DataItem::as_signed);
     /// assert_eq!(tag_unwrapped, Some((vec![20, 30], -21)));
     /// ```
@@ -839,9 +847,9 @@ impl DataItem {
                 }
                 map_bytes
             }
-            Self::Tag(number, value) => {
-                let mut tag_bytes = encode_u64_number(self.major_type(), *number);
-                tag_bytes.append(&mut value.encode());
+            Self::Tag(tag_content) => {
+                let mut tag_bytes = encode_u64_number(self.major_type(), tag_content.number());
+                tag_bytes.append(&mut tag_content.content().encode());
                 tag_bytes
             }
             Self::Boolean(bool_val) => {
@@ -913,7 +921,7 @@ impl DataItem {
                 }
                 val.array().iter().all(|v| v.is_deterministic(mode))
             }
-            Self::Tag(_, val) => val.is_deterministic(mode),
+            Self::Tag(tag_content) => tag_content.content().is_deterministic(mode),
             Self::Byte(byte_content) => !byte_content.is_indefinite(),
             Self::Text(text_content) => !text_content.is_indefinite(),
             _ => true,
@@ -965,7 +973,12 @@ impl DataItem {
                         .clone(),
                 )
             }
-            Self::Tag(tag_num, val) => Self::Tag(tag_num, Box::new(val.deterministic(mode))),
+            Self::Tag(tag_content) => {
+                Self::Tag(TagContent::from((
+                    tag_content.number(),
+                    tag_content.content().clone().deterministic(mode),
+                )))
+            }
             Self::Byte(byte_content) => {
                 if byte_content.is_indefinite() {
                     Self::Byte(
@@ -1001,9 +1014,9 @@ fn extract_and_extend_tags<T>(
     tags: &mut Vec<u64>,
 ) -> Option<T> {
     match item {
-        DataItem::Tag(tag, inner_item) => {
-            tags.push(*tag);
-            extract_and_extend_tags(inner_item, extractor, tags)
+        DataItem::Tag(tag_content) => {
+            tags.push(tag_content.number());
+            extract_and_extend_tags(tag_content.content(), extractor, tags)
         }
         _ => extractor(item),
     }
@@ -1122,7 +1135,7 @@ fn decode_value(iter: &mut Iter<'_, u8>) -> Result<DataItem, Error> {
         6 => {
             let tag_number = extract_number(additional, iter)?;
             let tag_value = decode_value(iter)?;
-            Ok(DataItem::Tag(tag_number, Box::new(tag_value)))
+            Ok(DataItem::Tag(TagContent::from((tag_number, tag_value))))
         }
         7 => decode_simple_or_floating(additional, iter),
         _ => unreachable!("major type can only be between 0 to 7"),
