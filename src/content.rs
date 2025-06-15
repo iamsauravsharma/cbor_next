@@ -11,7 +11,8 @@ use crate::error::Error;
 ///
 /// # Example
 /// ```rust
-/// use cbor_next::ByteContent
+/// use cbor_next::ByteContent;
+///
 /// let mut content = ByteContent::default();
 /// assert!(!content.is_indefinite());
 /// content.set_indefinite(true);
@@ -80,7 +81,8 @@ impl ByteContent {
 ///
 /// # Example
 /// ```rust
-/// use cbor_next::TextContent
+/// use cbor_next::TextContent;
+///
 /// let mut content = TextContent::default();
 /// assert!(!content.is_indefinite());
 /// content.set_indefinite(true);
@@ -178,7 +180,8 @@ impl TextContent {
 ///
 /// # Example
 /// ```rust
-/// use cbor_next::ArrayContent
+/// use cbor_next::ArrayContent;
+///
 /// let mut content = ArrayContent::default();
 /// assert!(!content.is_indefinite());
 /// content.set_indefinite(true);
@@ -235,7 +238,8 @@ impl ArrayContent {
 ///
 /// # Example
 /// ```rust
-/// use cbor_next::MapContent
+/// use cbor_next::MapContent;
+///
 /// let mut content = MapContent::default();
 /// assert!(!content.is_indefinite());
 /// content.set_indefinite(true);
