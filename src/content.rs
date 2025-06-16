@@ -314,8 +314,8 @@ impl MapContent {
 #[derive(PartialEq, Clone)]
 #[non_exhaustive]
 pub enum TagContent {
-    /// Tag currently unknown to a system
-    Unknown(u64, Box<DataItem>),
+    /// Generic tag which current version of crate have no information
+    Generic(u64, Box<DataItem>),
 }
 
 impl<T> From<(u64, T)> for TagContent
@@ -323,7 +323,7 @@ where
     T: Into<DataItem>,
 {
     fn from((number, data): (u64, T)) -> Self {
-        Self::Unknown(number, Box::new(data.into()))
+        Self::Generic(number, Box::new(data.into()))
     }
 }
 
@@ -332,7 +332,7 @@ impl TagContent {
     #[must_use]
     pub fn number(&self) -> u64 {
         match self {
-            Self::Unknown(num, _) => *num,
+            Self::Generic(num, _) => *num,
         }
     }
 
@@ -340,7 +340,7 @@ impl TagContent {
     #[must_use]
     pub fn content(&self) -> &DataItem {
         match self {
-            Self::Unknown(_, data_item) => data_item,
+            Self::Generic(_, data_item) => data_item,
         }
     }
 }
