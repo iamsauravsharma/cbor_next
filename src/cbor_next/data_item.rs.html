@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `src/data_item.rs`."><title>data_item.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-84e720fa.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="cbor_next" data-themes="" data-resource-suffix="" data-rustdoc-version="1.89.0-nightly (586ad391f 2025-06-15)" data-channel="nightly" data-search-js="search-f7877310.js" data-settings-js="settings-5514c975.js" ><script src="../../static.files/storage-4e99c027.js"></script><script defer src="../../static.files/src-script-63605ae7.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-fd3af306.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-32bb7600.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><h1><div class="sub-heading">cbor_next/</div>data_item.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-4"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="kw">use </span>core::f64;
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `src/data_item.rs`."><title>data_item.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-aa0817cf.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="cbor_next" data-themes="" data-resource-suffix="" data-rustdoc-version="1.90.0-nightly (a7a1618e6 2025-07-22)" data-channel="nightly" data-search-js="search-fa3e91e5.js" data-settings-js="settings-5514c975.js" ><script src="../../static.files/storage-4e99c027.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-673ee1e0.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-32bb7600.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><h1><div class="sub-heading">cbor_next/</div>data_item.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-4"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="kw">use </span>core::f64;
 <a href=#2 id=2 data-nosnippet>2</a><span class="kw">use </span>std::cmp::Ordering;
 <a href=#3 id=3 data-nosnippet>3</a><span class="kw">use </span>std::convert::Into;
 <a href=#4 id=4 data-nosnippet>4</a><span class="kw">use </span>std::fmt::{Debug, Write};
@@ -1290,71 +1290,69 @@
 <a href=#1290 id=1290 data-nosnippet>1290</a>
 <a href=#1291 id=1291 data-nosnippet>1291</a><span class="kw">fn </span>extract_array_item(iter: <span class="kw-2">&amp;mut </span>Iter&lt;<span class="lifetime">'_</span>, u8&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;DataItem&gt;, Error&gt; {
 <a href=#1292 id=1292 data-nosnippet>1292</a>    <span class="kw">let </span><span class="kw-2">mut </span>result = <span class="macro">vec!</span>[];
-<a href=#1293 id=1293 data-nosnippet>1293</a>    <span class="attr">#[expect(clippy::collapsible_if, reason = <span class="string">"not supported in stable version"</span>)]
-<a href=#1294 id=1294 data-nosnippet>1294</a>    </span><span class="kw">if let </span><span class="prelude-val">Some</span>(peek_val) = iter.clone().next() {
-<a href=#1295 id=1295 data-nosnippet>1295</a>        <span class="kw">if </span><span class="kw-2">*</span>peek_val != <span class="number">255 </span>{
-<a href=#1296 id=1296 data-nosnippet>1296</a>            result.push(decode_value(iter)<span class="question-mark">?</span>);
-<a href=#1297 id=1297 data-nosnippet>1297</a>            result.append(<span class="kw-2">&amp;mut </span>extract_array_item(iter)<span class="question-mark">?</span>);
-<a href=#1298 id=1298 data-nosnippet>1298</a>        }
-<a href=#1299 id=1299 data-nosnippet>1299</a>    }
-<a href=#1300 id=1300 data-nosnippet>1300</a>    <span class="prelude-val">Ok</span>(result)
-<a href=#1301 id=1301 data-nosnippet>1301</a>}
-<a href=#1302 id=1302 data-nosnippet>1302</a>
-<a href=#1303 id=1303 data-nosnippet>1303</a><span class="kw">fn </span>extract_map_item(iter: <span class="kw-2">&amp;mut </span>Iter&lt;<span class="lifetime">'_</span>, u8&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;IndexMap&lt;DataItem, DataItem&gt;, Error&gt; {
-<a href=#1304 id=1304 data-nosnippet>1304</a>    <span class="kw">let </span><span class="kw-2">mut </span>result = IndexMap::new();
-<a href=#1305 id=1305 data-nosnippet>1305</a>    <span class="attr">#[expect(clippy::collapsible_if, reason = <span class="string">"not supported in stable version"</span>)]
-<a href=#1306 id=1306 data-nosnippet>1306</a>    </span><span class="kw">if let </span><span class="prelude-val">Some</span>(peek_val) = iter.clone().next() {
-<a href=#1307 id=1307 data-nosnippet>1307</a>        <span class="kw">if </span><span class="kw-2">*</span>peek_val != <span class="number">255 </span>{
-<a href=#1308 id=1308 data-nosnippet>1308</a>            <span class="kw">let </span>key = decode_value(iter)<span class="question-mark">?</span>;
-<a href=#1309 id=1309 data-nosnippet>1309</a>            <span class="kw">let </span>val = decode_value(iter)<span class="question-mark">?</span>;
-<a href=#1310 id=1310 data-nosnippet>1310</a>            <span class="kw">if </span>result.insert(key.clone(), val).is_some() {
-<a href=#1311 id=1311 data-nosnippet>1311</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(Error::NotWellFormed(<span class="macro">format!</span>(
-<a href=#1312 id=1312 data-nosnippet>1312</a>                    <span class="string">"same map key {key:#?} is repeated multiple times"
-<a href=#1313 id=1313 data-nosnippet>1313</a>                </span>)));
-<a href=#1314 id=1314 data-nosnippet>1314</a>            }
-<a href=#1315 id=1315 data-nosnippet>1315</a>            result.extend(extract_map_item(iter)<span class="question-mark">?</span>);
-<a href=#1316 id=1316 data-nosnippet>1316</a>        }
-<a href=#1317 id=1317 data-nosnippet>1317</a>    }
-<a href=#1318 id=1318 data-nosnippet>1318</a>    <span class="prelude-val">Ok</span>(result)
-<a href=#1319 id=1319 data-nosnippet>1319</a>}
-<a href=#1320 id=1320 data-nosnippet>1320</a>
-<a href=#1321 id=1321 data-nosnippet>1321</a><span class="kw">fn </span>collect_vec_u8(iter: <span class="kw-2">&amp;mut </span>Iter&lt;<span class="lifetime">'_</span>, u8&gt;, number: u64) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;u8&gt;, Error&gt; {
-<a href=#1322 id=1322 data-nosnippet>1322</a>    <span class="kw">let </span><span class="kw-2">mut </span>collected_val = Vec::new();
-<a href=#1323 id=1323 data-nosnippet>1323</a>    <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..number {
-<a href=#1324 id=1324 data-nosnippet>1324</a>        <span class="kw">match </span>iter.next() {
-<a href=#1325 id=1325 data-nosnippet>1325</a>            <span class="prelude-val">Some</span>(item) =&gt; collected_val.push(<span class="kw-2">*</span>item),
-<a href=#1326 id=1326 data-nosnippet>1326</a>            <span class="prelude-val">None </span>=&gt; {
-<a href=#1327 id=1327 data-nosnippet>1327</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(Error::NotWellFormed(<span class="macro">format!</span>(
-<a href=#1328 id=1328 data-nosnippet>1328</a>                    <span class="string">"incomplete array of byte missing {} byte"</span>,
-<a href=#1329 id=1329 data-nosnippet>1329</a>                    number - i
-<a href=#1330 id=1330 data-nosnippet>1330</a>                )));
-<a href=#1331 id=1331 data-nosnippet>1331</a>            }
-<a href=#1332 id=1332 data-nosnippet>1332</a>        }
-<a href=#1333 id=1333 data-nosnippet>1333</a>    }
-<a href=#1334 id=1334 data-nosnippet>1334</a>    <span class="prelude-val">Ok</span>(collected_val)
-<a href=#1335 id=1335 data-nosnippet>1335</a>}
-<a href=#1336 id=1336 data-nosnippet>1336</a>
-<a href=#1337 id=1337 data-nosnippet>1337</a><span class="kw">fn </span>extract_optional_number(additional: u8, iter: <span class="kw-2">&amp;mut </span>Iter&lt;<span class="lifetime">'_</span>, u8&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;u64&gt;, Error&gt; {
-<a href=#1338 id=1338 data-nosnippet>1338</a>    <span class="kw">match </span>additional {
-<a href=#1339 id=1339 data-nosnippet>1339</a>        <span class="number">0</span>..=<span class="number">23 </span>=&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(u64::from(additional))),
-<a href=#1340 id=1340 data-nosnippet>1340</a>        <span class="number">24</span>..=<span class="number">27 </span>=&gt; {
-<a href=#1341 id=1341 data-nosnippet>1341</a>            <span class="kw">let </span>number_bytes = collect_vec_u8(iter, <span class="number">2u64</span>.pow(u32::from(additional - <span class="number">24</span>)))<span class="question-mark">?</span>;
-<a href=#1342 id=1342 data-nosnippet>1342</a>            <span class="kw">let </span><span class="kw-2">mut </span>array = [<span class="number">0u8</span>; <span class="number">8</span>];
-<a href=#1343 id=1343 data-nosnippet>1343</a>            <span class="kw">let </span>len = number_bytes.len();
-<a href=#1344 id=1344 data-nosnippet>1344</a>            array[<span class="number">8 </span>- len..].copy_from_slice(<span class="kw-2">&amp;</span>number_bytes[..len]);
-<a href=#1345 id=1345 data-nosnippet>1345</a>            <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(u64::from_be_bytes(array)))
-<a href=#1346 id=1346 data-nosnippet>1346</a>        }
-<a href=#1347 id=1347 data-nosnippet>1347</a>        <span class="number">28</span>..=<span class="number">30 </span>=&gt; {
-<a href=#1348 id=1348 data-nosnippet>1348</a>            <span class="prelude-val">Err</span>(Error::NotWellFormed(<span class="macro">format!</span>(
-<a href=#1349 id=1349 data-nosnippet>1349</a>                <span class="string">"invalid additional number {additional}"
-<a href=#1350 id=1350 data-nosnippet>1350</a>            </span>)))
-<a href=#1351 id=1351 data-nosnippet>1351</a>        }
-<a href=#1352 id=1352 data-nosnippet>1352</a>        <span class="number">31 </span>=&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>),
-<a href=#1353 id=1353 data-nosnippet>1353</a>        <span class="kw">_ </span>=&gt; <span class="macro">unreachable!</span>(<span class="string">"Cannot have additional info value greater than 31"</span>),
-<a href=#1354 id=1354 data-nosnippet>1354</a>    }
-<a href=#1355 id=1355 data-nosnippet>1355</a>}
-<a href=#1356 id=1356 data-nosnippet>1356</a>
-<a href=#1357 id=1357 data-nosnippet>1357</a><span class="kw">fn </span>extract_number(additional: u8, iter: <span class="kw-2">&amp;mut </span>Iter&lt;<span class="lifetime">'_</span>, u8&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;u64, Error&gt; {
-<a href=#1358 id=1358 data-nosnippet>1358</a>    extract_optional_number(additional, iter)<span class="question-mark">?
-<a href=#1359 id=1359 data-nosnippet>1359</a>        </span>.ok_or(Error::NotWellFormed(<span class="string">"failed to extract number"</span>.to_string()))
-<a href=#1360 id=1360 data-nosnippet>1360</a>}</code></pre></div></section></main></body></html>
+<a href=#1293 id=1293 data-nosnippet>1293</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(peek_val) = iter.clone().next()
+<a href=#1294 id=1294 data-nosnippet>1294</a>        &amp;&amp; <span class="kw-2">*</span>peek_val != <span class="number">255
+<a href=#1295 id=1295 data-nosnippet>1295</a>    </span>{
+<a href=#1296 id=1296 data-nosnippet>1296</a>        result.push(decode_value(iter)<span class="question-mark">?</span>);
+<a href=#1297 id=1297 data-nosnippet>1297</a>        result.append(<span class="kw-2">&amp;mut </span>extract_array_item(iter)<span class="question-mark">?</span>);
+<a href=#1298 id=1298 data-nosnippet>1298</a>    }
+<a href=#1299 id=1299 data-nosnippet>1299</a>    <span class="prelude-val">Ok</span>(result)
+<a href=#1300 id=1300 data-nosnippet>1300</a>}
+<a href=#1301 id=1301 data-nosnippet>1301</a>
+<a href=#1302 id=1302 data-nosnippet>1302</a><span class="kw">fn </span>extract_map_item(iter: <span class="kw-2">&amp;mut </span>Iter&lt;<span class="lifetime">'_</span>, u8&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;IndexMap&lt;DataItem, DataItem&gt;, Error&gt; {
+<a href=#1303 id=1303 data-nosnippet>1303</a>    <span class="kw">let </span><span class="kw-2">mut </span>result = IndexMap::new();
+<a href=#1304 id=1304 data-nosnippet>1304</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(peek_val) = iter.clone().next()
+<a href=#1305 id=1305 data-nosnippet>1305</a>        &amp;&amp; <span class="kw-2">*</span>peek_val != <span class="number">255
+<a href=#1306 id=1306 data-nosnippet>1306</a>    </span>{
+<a href=#1307 id=1307 data-nosnippet>1307</a>        <span class="kw">let </span>key = decode_value(iter)<span class="question-mark">?</span>;
+<a href=#1308 id=1308 data-nosnippet>1308</a>        <span class="kw">let </span>val = decode_value(iter)<span class="question-mark">?</span>;
+<a href=#1309 id=1309 data-nosnippet>1309</a>        <span class="kw">if </span>result.insert(key.clone(), val).is_some() {
+<a href=#1310 id=1310 data-nosnippet>1310</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(Error::NotWellFormed(<span class="macro">format!</span>(
+<a href=#1311 id=1311 data-nosnippet>1311</a>                <span class="string">"same map key {key:#?} is repeated multiple times"
+<a href=#1312 id=1312 data-nosnippet>1312</a>            </span>)));
+<a href=#1313 id=1313 data-nosnippet>1313</a>        }
+<a href=#1314 id=1314 data-nosnippet>1314</a>        result.extend(extract_map_item(iter)<span class="question-mark">?</span>);
+<a href=#1315 id=1315 data-nosnippet>1315</a>    }
+<a href=#1316 id=1316 data-nosnippet>1316</a>    <span class="prelude-val">Ok</span>(result)
+<a href=#1317 id=1317 data-nosnippet>1317</a>}
+<a href=#1318 id=1318 data-nosnippet>1318</a>
+<a href=#1319 id=1319 data-nosnippet>1319</a><span class="kw">fn </span>collect_vec_u8(iter: <span class="kw-2">&amp;mut </span>Iter&lt;<span class="lifetime">'_</span>, u8&gt;, number: u64) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;u8&gt;, Error&gt; {
+<a href=#1320 id=1320 data-nosnippet>1320</a>    <span class="kw">let </span><span class="kw-2">mut </span>collected_val = Vec::new();
+<a href=#1321 id=1321 data-nosnippet>1321</a>    <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..number {
+<a href=#1322 id=1322 data-nosnippet>1322</a>        <span class="kw">match </span>iter.next() {
+<a href=#1323 id=1323 data-nosnippet>1323</a>            <span class="prelude-val">Some</span>(item) =&gt; collected_val.push(<span class="kw-2">*</span>item),
+<a href=#1324 id=1324 data-nosnippet>1324</a>            <span class="prelude-val">None </span>=&gt; {
+<a href=#1325 id=1325 data-nosnippet>1325</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(Error::NotWellFormed(<span class="macro">format!</span>(
+<a href=#1326 id=1326 data-nosnippet>1326</a>                    <span class="string">"incomplete array of byte missing {} byte"</span>,
+<a href=#1327 id=1327 data-nosnippet>1327</a>                    number - i
+<a href=#1328 id=1328 data-nosnippet>1328</a>                )));
+<a href=#1329 id=1329 data-nosnippet>1329</a>            }
+<a href=#1330 id=1330 data-nosnippet>1330</a>        }
+<a href=#1331 id=1331 data-nosnippet>1331</a>    }
+<a href=#1332 id=1332 data-nosnippet>1332</a>    <span class="prelude-val">Ok</span>(collected_val)
+<a href=#1333 id=1333 data-nosnippet>1333</a>}
+<a href=#1334 id=1334 data-nosnippet>1334</a>
+<a href=#1335 id=1335 data-nosnippet>1335</a><span class="kw">fn </span>extract_optional_number(additional: u8, iter: <span class="kw-2">&amp;mut </span>Iter&lt;<span class="lifetime">'_</span>, u8&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;u64&gt;, Error&gt; {
+<a href=#1336 id=1336 data-nosnippet>1336</a>    <span class="kw">match </span>additional {
+<a href=#1337 id=1337 data-nosnippet>1337</a>        <span class="number">0</span>..=<span class="number">23 </span>=&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(u64::from(additional))),
+<a href=#1338 id=1338 data-nosnippet>1338</a>        <span class="number">24</span>..=<span class="number">27 </span>=&gt; {
+<a href=#1339 id=1339 data-nosnippet>1339</a>            <span class="kw">let </span>number_bytes = collect_vec_u8(iter, <span class="number">2u64</span>.pow(u32::from(additional - <span class="number">24</span>)))<span class="question-mark">?</span>;
+<a href=#1340 id=1340 data-nosnippet>1340</a>            <span class="kw">let </span><span class="kw-2">mut </span>array = [<span class="number">0u8</span>; <span class="number">8</span>];
+<a href=#1341 id=1341 data-nosnippet>1341</a>            <span class="kw">let </span>len = number_bytes.len();
+<a href=#1342 id=1342 data-nosnippet>1342</a>            array[<span class="number">8 </span>- len..].copy_from_slice(<span class="kw-2">&amp;</span>number_bytes[..len]);
+<a href=#1343 id=1343 data-nosnippet>1343</a>            <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(u64::from_be_bytes(array)))
+<a href=#1344 id=1344 data-nosnippet>1344</a>        }
+<a href=#1345 id=1345 data-nosnippet>1345</a>        <span class="number">28</span>..=<span class="number">30 </span>=&gt; {
+<a href=#1346 id=1346 data-nosnippet>1346</a>            <span class="prelude-val">Err</span>(Error::NotWellFormed(<span class="macro">format!</span>(
+<a href=#1347 id=1347 data-nosnippet>1347</a>                <span class="string">"invalid additional number {additional}"
+<a href=#1348 id=1348 data-nosnippet>1348</a>            </span>)))
+<a href=#1349 id=1349 data-nosnippet>1349</a>        }
+<a href=#1350 id=1350 data-nosnippet>1350</a>        <span class="number">31 </span>=&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>),
+<a href=#1351 id=1351 data-nosnippet>1351</a>        <span class="kw">_ </span>=&gt; <span class="macro">unreachable!</span>(<span class="string">"Cannot have additional info value greater than 31"</span>),
+<a href=#1352 id=1352 data-nosnippet>1352</a>    }
+<a href=#1353 id=1353 data-nosnippet>1353</a>}
+<a href=#1354 id=1354 data-nosnippet>1354</a>
+<a href=#1355 id=1355 data-nosnippet>1355</a><span class="kw">fn </span>extract_number(additional: u8, iter: <span class="kw-2">&amp;mut </span>Iter&lt;<span class="lifetime">'_</span>, u8&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;u64, Error&gt; {
+<a href=#1356 id=1356 data-nosnippet>1356</a>    extract_optional_number(additional, iter)<span class="question-mark">?
+<a href=#1357 id=1357 data-nosnippet>1357</a>        </span>.ok_or(Error::NotWellFormed(<span class="string">"failed to extract number"</span>.to_string()))
+<a href=#1358 id=1358 data-nosnippet>1358</a>}</code></pre></div></section></main></body></html>
