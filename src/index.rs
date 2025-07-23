@@ -6,7 +6,7 @@ mod private {
 
     pub trait Sealed {}
     impl Sealed for usize {}
-    impl<T> Sealed for T where T: Into<DataItem> {}
+    impl Sealed for DataItem {}
 }
 
 /// Trait which is used to get a data item from data item

@@ -1290,30 +1290,28 @@ fn decode_indefinite_byte_or_text(
 
 fn extract_array_item(iter: &mut Iter<'_, u8>) -> Result<Vec<DataItem>, Error> {
     let mut result = vec![];
-    #[expect(clippy::collapsible_if, reason = "not supported in stable version")]
-    if let Some(peek_val) = iter.clone().next() {
-        if *peek_val != 255 {
-            result.push(decode_value(iter)?);
-            result.append(&mut extract_array_item(iter)?);
-        }
+    if let Some(peek_val) = iter.clone().next()
+        && *peek_val != 255
+    {
+        result.push(decode_value(iter)?);
+        result.append(&mut extract_array_item(iter)?);
     }
     Ok(result)
 }
 
 fn extract_map_item(iter: &mut Iter<'_, u8>) -> Result<IndexMap<DataItem, DataItem>, Error> {
     let mut result = IndexMap::new();
-    #[expect(clippy::collapsible_if, reason = "not supported in stable version")]
-    if let Some(peek_val) = iter.clone().next() {
-        if *peek_val != 255 {
-            let key = decode_value(iter)?;
-            let val = decode_value(iter)?;
-            if result.insert(key.clone(), val).is_some() {
-                return Err(Error::NotWellFormed(format!(
-                    "same map key {key:#?} is repeated multiple times"
-                )));
-            }
-            result.extend(extract_map_item(iter)?);
+    if let Some(peek_val) = iter.clone().next()
+        && *peek_val != 255
+    {
+        let key = decode_value(iter)?;
+        let val = decode_value(iter)?;
+        if result.insert(key.clone(), val).is_some() {
+            return Err(Error::NotWellFormed(format!(
+                "same map key {key:#?} is repeated multiple times"
+            )));
         }
+        result.extend(extract_map_item(iter)?);
     }
     Ok(result)
 }
