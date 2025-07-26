@@ -1,7 +1,6 @@
 use core::f64;
 use std::cmp::Ordering;
-use std::convert::Into;
-use std::fmt::{Debug, Write};
+use std::fmt::{Debug, Write as _};
 use std::hash::Hash;
 use std::num::TryFromIntError;
 use std::slice::Iter;

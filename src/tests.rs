@@ -2,13 +2,13 @@ use core::f64;
 use std::vec;
 
 use indexmap::IndexMap;
-use rand::seq::SliceRandom;
+use rand::seq::SliceRandom as _;
 
 use crate::content::{ArrayContent, ByteContent, MapContent, TagContent, TextContent};
 use crate::data_item::DataItem;
 use crate::deterministic::DeterministicMode;
 use crate::error::Error;
-use crate::index::Get;
+use crate::index::Get as _;
 
 fn encode_compare<I>(hex_cbor: &str, value_into: I)
 where
@@ -28,10 +28,8 @@ where
     let value = value_into.into();
     let vec_u8_cbor =
         hex::decode(hex_cbor).unwrap_or_else(|_| panic!(" failed to decode hex {hex_cbor}"));
-    let cbor_to_value =
-        DataItem::decode(&vec_u8_cbor).unwrap_or_else(|err: crate::error::Error| {
-            panic!("{err} failed to decode value {hex_cbor}")
-        });
+    let cbor_to_value = DataItem::decode(&vec_u8_cbor)
+        .unwrap_or_else(|err: Error| panic!("{err} failed to decode value {hex_cbor}"));
     assert_eq!(&cbor_to_value, &value, "{hex_cbor}");
 }
 

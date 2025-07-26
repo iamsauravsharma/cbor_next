@@ -6,7 +6,6 @@ use std::string::FromUtf8Error;
 #[non_exhaustive]
 pub enum Error {
     /// Incomplete CBOR bytes
-    // #[error("Incomplete CBOR bytes")]
     Incomplete,
     /// Error generated when converted string from utf8 bytes
     FromUtf8(FromUtf8Error),
