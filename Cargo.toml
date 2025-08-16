@@ -13,12 +13,19 @@ keywords = ["cbor"]
 [dependencies]
 half = "2.6.0"
 indexmap = "2.9.0"
+serde = { version = "1.0.219", default-features = false, features = [
+    "std",
+], optional = true }
 
 [dev-dependencies]
 hex = "0.4.3"
 rand = { version = "0.9.1", default-features = false, features = [
     "thread_rng",
 ] }
+serde = { version = "1.0.219", default-features = false, features = ["derive"] }
+
+[features]
+serde = ["dep:serde"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -30,21 +37,27 @@ elided_lifetimes_in_paths = "warn"
 meta_variable_misuse = "warn"
 missing_docs = "warn"
 redundant_imports = "warn"
+unreachable_pub = "warn"
 unsafe_code = "deny"
 unstable_features = "deny"
 unused_crate_dependencies = "warn"
 unused_lifetimes = "warn"
 unused_macro_rules = "warn"
 unused_qualifications = "warn"
-unreachable_pub = "warn"
 
 [lints.clippy]
 allow_attributes = "warn"
 dbg_macro = "warn"
 exhaustive_enums = "warn"
 infinite_loop = "warn"
+multiple_inherent_impl = "warn"
+panic = "warn"
+print_stderr = "warn"
+print_stdout = "warn"
 redundant_test_prefix = "warn"
 tests_outside_test_module = "warn"
+todo = "warn"
+unimplemented = "warn"
 unused_trait_names = "warn"
 use_debug = "warn"
 all = { level = "deny", priority = -1 }

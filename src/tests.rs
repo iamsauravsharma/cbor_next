@@ -1,3 +1,4 @@
+#![expect(clippy::panic, reason = "allow panic in tests")]
 use core::f64;
 use std::vec;
 
@@ -144,8 +145,8 @@ fn byte() {
         DataItem::Byte(
             ByteContent::default()
                 .set_indefinite(true)
-                .add_bytes(&[0x01, 0x02])
-                .add_bytes(&[0x03, 0x04, 0x05])
+                .push_bytes(&[0x01, 0x02])
+                .push_bytes(&[0x03, 0x04, 0x05])
                 .clone(),
         ),
     );
@@ -165,8 +166,8 @@ fn text() {
         DataItem::Text(
             TextContent::default()
                 .set_indefinite(true)
-                .add_string("strea")
-                .add_string("ming")
+                .push_string("strea")
+                .push_string("ming")
                 .clone(),
         ),
     );

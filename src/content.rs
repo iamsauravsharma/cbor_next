@@ -46,13 +46,13 @@ impl ByteContent {
         self
     }
 
-    /// Append new data to a content without overriding old value
-    pub fn add_bytes(&mut self, byte: &[u8]) -> &mut Self {
+    /// Push bytes to byte content
+    pub fn push_bytes(&mut self, byte: &[u8]) -> &mut Self {
         self.bytes.push(byte.to_vec());
         self
     }
 
-    /// Extend value by a byte
+    /// Extend byte content by value
     pub fn extend_bytes(&mut self, byte: &[Vec<u8>]) -> &mut Self {
         self.bytes.extend(byte.to_vec());
         self
@@ -132,7 +132,7 @@ impl TryFrom<ByteContent> for TextContent {
         let mut text_content = TextContent::default();
         text_content.set_indefinite(value.is_indefinite);
         for chunk in value.chunk() {
-            text_content.add_string(&String::from_utf8(chunk.clone())?);
+            text_content.push_string(&String::from_utf8(chunk.clone())?);
         }
         Ok(text_content)
     }
@@ -151,9 +151,15 @@ impl TextContent {
         self
     }
 
-    /// Append new data to a content without overriding old value
-    pub fn add_string(&mut self, string: &str) -> &mut Self {
+    /// push new string to a text content
+    pub fn push_string(&mut self, string: &str) -> &mut Self {
         self.strings.push(string.to_string());
+        self
+    }
+
+    /// Extend text content by string list
+    pub fn extend_string(&mut self, strings: &[String]) -> &mut Self {
+        self.strings.extend(strings.to_vec());
         self
     }
 
@@ -218,6 +224,25 @@ impl ArrayContent {
         T: Into<DataItem> + Clone,
     {
         self.array = array.iter().map(Into::into).collect();
+        self
+    }
+
+    /// push a data item to array
+    pub fn push_content<T>(&mut self, content: T) -> &mut Self
+    where
+        T: Into<DataItem>,
+    {
+        self.array.push(content.into());
+        self
+    }
+
+    /// Extend array with provided array
+    pub fn extend_content<T>(&mut self, array: &[T]) -> &mut Self
+    where
+        T: Into<DataItem> + Clone,
+    {
+        self.array
+            .extend(array.iter().map(DataItem::from).collect::<Vec<_>>());
         self
     }
 
@@ -287,6 +312,30 @@ impl MapContent {
         V: Into<DataItem> + Clone,
     {
         self.map = map.iter().map(|(k, v)| (k.into(), v.into())).collect();
+        self
+    }
+
+    /// insert new data to index map
+    pub fn insert_content<K, V>(&mut self, key: K, value: V) -> &mut Self
+    where
+        K: Into<DataItem>,
+        V: Into<DataItem>,
+    {
+        self.map.insert(key.into(), value.into());
+        self
+    }
+
+    /// Extend map content with provided map
+    pub fn extend_content<K, V>(&mut self, map: &IndexMap<K, V>) -> &mut Self
+    where
+        K: Into<DataItem> + Clone,
+        V: Into<DataItem> + Clone,
+    {
+        let new_map = map
+            .iter()
+            .map(|(k, v)| (DataItem::from(k), DataItem::from(v)))
+            .collect::<Vec<(_, _)>>();
+        self.map.extend(new_map);
         self
     }
 
