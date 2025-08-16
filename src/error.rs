@@ -19,29 +19,6 @@ pub enum Error {
     NotWellFormed(String),
     /// Invalid break stop position
     InvalidBreakStop,
-    /// Error which holds serde error message
-    #[cfg(feature = "serde")]
-    SerdeMessage(String),
-}
-
-#[cfg(feature = "serde")]
-impl serde::ser::Error for Error {
-    fn custom<T>(msg: T) -> Self
-    where
-        T: std::fmt::Display,
-    {
-        Self::SerdeMessage(msg.to_string())
-    }
-}
-
-#[cfg(feature = "serde")]
-impl serde::de::Error for Error {
-    fn custom<T>(msg: T) -> Self
-    where
-        T: std::fmt::Display,
-    {
-        Self::SerdeMessage(msg.to_string())
-    }
 }
 
 impl From<FromUtf8Error> for Error {
@@ -73,8 +50,6 @@ impl std::fmt::Display for Error {
                 write!(f, "not well formed data : {internal_message}")
             }
             Self::InvalidBreakStop => write!(f, "break stop position is invalid"),
-            #[cfg(feature = "serde")]
-            Self::SerdeMessage(message) => write!(f, "{message}"),
         }
     }
 }

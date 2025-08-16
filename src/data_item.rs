@@ -702,6 +702,32 @@ impl DataItem {
         }
     }
 
+    /// Get a list of nested list of tags and its internal data item
+    ///
+    /// # Example
+    /// ```rust
+    /// use cbor_next::{DataItem, TagContent};
+    ///
+    /// let tag = DataItem::from(TagContent::from((20, TagContent::from((30, -21)))));
+    /// let tag_unwrapped = tag.as_tag_nested();
+    /// assert_eq!(tag_unwrapped, Some((vec![20, 30], DataItem::from(-21))));
+    ///
+    /// let untagged = DataItem::from(21);
+    /// let untagged_unwrapped = untagged.as_tag_nested();
+    /// assert_eq!(untagged_unwrapped, None);
+    /// ```
+    #[must_use]
+    pub fn as_tag_nested(&self) -> Option<(Vec<u64>, DataItem)> {
+        match self {
+            Self::Tag(_) => {
+                let mut tags = vec![];
+                let data_item = as_tag_nested(self, &mut tags);
+                Some((tags, data_item))
+            }
+            _ => None,
+        }
+    }
+
     /// Get as boolean number
     ///
     /// # Example
@@ -755,28 +781,6 @@ impl DataItem {
             Self::Undefined => Some(23),
             _ => None,
         }
-    }
-
-    /// Recursively extract tagged values, collecting all tag numbers and
-    /// returning them with the extracted value. Tags are vector of tag numbers
-    /// in outer-to-inner order
-    ///
-    ///  When extractor is tag extractor i.e [`DataItem::as_tag`] than this
-    /// would always return `None` since it only supports non tag extract but
-    /// would successfully returns tag list
-    ///
-    /// # Example
-    /// ```rust
-    /// use cbor_next::{DataItem, TagContent};
-    ///
-    /// let tag = DataItem::from(TagContent::from((20, TagContent::from((30, -21)))));
-    /// let tag_unwrapped = tag.as_inner(DataItem::as_signed);
-    /// assert_eq!(tag_unwrapped, Some((vec![20, 30], -21)));
-    /// ```
-    #[must_use]
-    pub fn as_inner<T>(&self, extractor: impl Fn(&Self) -> Option<T>) -> Option<(Vec<u64>, T)> {
-        let mut tags = vec![];
-        extract_and_extend_tags(self, extractor, &mut tags).map(|val| (tags, val))
     }
 
     /// Get a major type of a value
@@ -1039,17 +1043,13 @@ impl DataItem {
     }
 }
 
-fn extract_and_extend_tags<T>(
-    item: &DataItem,
-    extractor: impl Fn(&DataItem) -> Option<T>,
-    tags: &mut Vec<u64>,
-) -> Option<T> {
+fn as_tag_nested(item: &DataItem, tags: &mut Vec<u64>) -> DataItem {
     match item {
         DataItem::Tag(tag_content) => {
             tags.push(tag_content.number());
-            extract_and_extend_tags(tag_content.content(), extractor, tags)
+            as_tag_nested(tag_content.content(), tags)
         }
-        _ => extractor(item),
+        _ => item.clone(),
     }
 }
 

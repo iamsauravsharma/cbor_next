@@ -13,19 +13,13 @@ keywords = ["cbor"]
 [dependencies]
 half = "2.6.0"
 indexmap = "2.9.0"
-serde = { version = "1.0.219", default-features = false, features = [
-    "std",
-], optional = true }
 
 [dev-dependencies]
 hex = "0.4.3"
 rand = { version = "0.9.1", default-features = false, features = [
     "thread_rng",
 ] }
-serde = { version = "1.0.219", default-features = false, features = ["derive"] }
 
-[features]
-serde = ["dep:serde"]
 
 [package.metadata.docs.rs]
 all-features = true
