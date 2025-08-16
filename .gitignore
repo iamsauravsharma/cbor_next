@@ -3,3 +3,6 @@
 
 # MacOS related
 .DS_Store
+
+# Vscode file
+.vscode

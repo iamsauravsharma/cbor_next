@@ -381,6 +381,20 @@ impl DataItem {
         matches!(self, Self::Signed(_))
     }
 
+    /// Is a integer? Can be both signed as well as unsigned
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::DataItem;
+    ///
+    /// assert!(DataItem::from(-32).is_integer());
+    /// assert!(DataItem::from(31).is_integer());
+    /// ```
+    #[must_use]
+    pub fn is_integer(&self) -> bool {
+        matches!(self, Self::Unsigned(_) | Self::Signed(_))
+    }
+
     /// Is a byte value?
     ///
     /// # Example
@@ -564,7 +578,7 @@ impl DataItem {
         }
     }
 
-    /// Get as signed number
+    /// Get as signed number. This will always return negative number
     ///
     /// # Example
     /// ```
@@ -575,6 +589,24 @@ impl DataItem {
     #[must_use]
     pub fn as_signed(&self) -> Option<i128> {
         match self {
+            Self::Signed(num) => Some(-i128::from(num + 1)),
+            _ => None,
+        }
+    }
+
+    /// Get as number which can be both signed or unsigned
+    ///
+    /// # Example
+    /// ```
+    /// use cbor_next::DataItem;
+    ///
+    /// assert_eq!(DataItem::from(-21).as_number(), Some(-21));
+    /// assert_eq!(DataItem::from(345).as_number(), Some(345));
+    /// ```
+    #[must_use]
+    pub fn as_number(&self) -> Option<i128> {
+        match self {
+            Self::Unsigned(num) => Some(i128::from(*num)),
             Self::Signed(num) => Some(-i128::from(num + 1)),
             _ => None,
         }
@@ -983,7 +1015,7 @@ impl DataItem {
                     Self::Byte(
                         ByteContent::default()
                             .set_indefinite(false)
-                            .add_bytes(&byte_content.full())
+                            .push_bytes(&byte_content.full())
                             .clone(),
                     )
                 } else {
@@ -995,7 +1027,7 @@ impl DataItem {
                     Self::Text(
                         TextContent::default()
                             .set_indefinite(false)
-                            .add_string(&text_content.full())
+                            .push_string(&text_content.full())
                             .clone(),
                     )
                 } else {
