@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["to_bytes"],"struct":["ArraySerializer","CborSerializer","MapSerializer","StructVariantSerializer","TupleVariantSerializer"]};
