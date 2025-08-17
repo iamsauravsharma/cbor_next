@@ -22,13 +22,13 @@ where
     /// use indexmap::IndexMap;
     ///
     /// let array_value = DataItem::Array(vec![DataItem::Unsigned(10)].into());
-    /// let map_val = vec![(DataItem::Unsigned(10), DataItem::Text("abc".into()))];
+    /// let map_val = vec![(DataItem::Text("abc".into()), DataItem::Unsigned(10))];
     /// let map_value = DataItem::from(map_val);
     /// assert_eq!(array_value.get(0), Some(&DataItem::Unsigned(10)));
     /// assert_eq!(array_value.get(2), None);
     /// assert_eq!(
-    ///     map_value.get(DataItem::Unsigned(10)),
-    ///     Some(&DataItem::Text("abc".into()))
+    ///     map_value.get(DataItem::from("abc")),
+    ///     Some(&DataItem::Unsigned(10))
     /// );
     /// assert_eq!(map_value.get(DataItem::Unsigned(11)), None);
     /// ```

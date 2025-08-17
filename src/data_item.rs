@@ -547,7 +547,7 @@ impl DataItem {
     /// use cbor_next::{DataItem, TagContent};
     ///
     /// let tag = DataItem::from(TagContent::from((20, TagContent::from((30, "abc")))));
-    /// assert!(tag.check_inner(DataItem::is_text));
+    /// assert!(tag.check_nested(DataItem::is_text));
     /// ```
     ///
     /// # Note
@@ -555,9 +555,9 @@ impl DataItem {
     /// If you need to check the tags themselves, use [`DataItem::is_tag`]
     /// directly
     #[must_use]
-    pub fn check_inner(&self, checker: impl Fn(&Self) -> bool) -> bool {
+    pub fn check_nested(&self, checker: impl Fn(&Self) -> bool) -> bool {
         match self {
-            Self::Tag(tag_content) => tag_content.content().check_inner(checker),
+            Self::Tag(tag_content) => tag_content.content().check_nested(checker),
             _ => checker(self),
         }
     }
