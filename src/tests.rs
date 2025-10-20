@@ -197,7 +197,7 @@ fn array() {
         "9f018202039f0405ffff",
         ArrayContent::default()
             .set_indefinite(true)
-            .set_content::<DataItem>(&vec![
+            .set_content::<DataItem>(&[
                 1.into(),
                 vec![2, 3].into(),
                 ArrayContent::default()

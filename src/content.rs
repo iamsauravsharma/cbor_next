@@ -358,12 +358,12 @@ impl MapContent {
     }
 }
 
-/// enum representing a tag in form of u64 and data item
+/// struct which holds tag related information such as tag number and content of
+/// tag
 #[derive(PartialEq, Clone)]
-#[non_exhaustive]
-pub enum TagContent {
-    /// Generic tag which current version of crate have no information
-    Generic(u64, Box<DataItem>),
+pub struct TagContent {
+    number: u64,
+    content: Box<DataItem>,
 }
 
 impl<T> From<(u64, T)> for TagContent
@@ -371,7 +371,10 @@ where
     T: Into<DataItem>,
 {
     fn from((number, data): (u64, T)) -> Self {
-        Self::Generic(number, Box::new(data.into()))
+        Self {
+            number,
+            content: Box::new(data.into()),
+        }
     }
 }
 
@@ -379,22 +382,18 @@ impl TagContent {
     /// Get a number of tag
     #[must_use]
     pub fn number(&self) -> u64 {
-        match self {
-            Self::Generic(num, _) => *num,
-        }
+        self.number
     }
 
     /// Get a content of tag
     #[must_use]
     pub fn content(&self) -> &DataItem {
-        match self {
-            Self::Generic(_, data_item) => data_item,
-        }
+        &self.content
     }
 }
 
 /// struct representing simple value which only allow number between 0-19 and
-/// 32 -255
+/// 32-255. This struct is simple wrapper above `u8` with validation
 ///
 /// # Example
 /// ```rust
