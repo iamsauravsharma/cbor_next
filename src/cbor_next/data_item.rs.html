@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `src/data_item.rs`."><title>data_item.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-ca0dd0c4.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="cbor_next" data-themes="" data-resource-suffix="" data-rustdoc-version="1.92.0-nightly (f04e3dfc8 2025-10-19)" data-channel="nightly" data-search-js="search-8d3311b9.js" data-stringdex-js="stringdex-c3e638e9.js" data-settings-js="settings-c38705f0.js" ><script src="../../static.files/storage-e2aeef58.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-ce535bd0.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-263c88ec.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content"><div class="main-heading"><h1><div class="sub-heading">cbor_next/</div>data_item.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-4"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="kw">use </span>core::f64;
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `src/data_item.rs`."><title>data_item.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-80aa586b.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="cbor_next" data-themes="" data-resource-suffix="" data-rustdoc-version="1.94.0-nightly (4f14395c3 2025-12-22)" data-channel="nightly" data-search-js="search-9e2438ea.js" data-stringdex-js="stringdex-a3946164.js" data-settings-js="settings-c38705f0.js" ><script src="../../static.files/storage-e2aeef58.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-3e30299d.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-ffcac47a.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content"><div class="main-heading"><h1><div class="sub-heading">cbor_next/</div>data_item.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-4"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="kw">use </span>core::f64;
 <a href=#2 id=2 data-nosnippet>2</a><span class="kw">use </span>std::cmp::Ordering;
 <a href=#3 id=3 data-nosnippet>3</a><span class="kw">use </span>std::fmt::{Debug, Write <span class="kw">as _</span>};
 <a href=#4 id=4 data-nosnippet>4</a><span class="kw">use </span>std::hash::Hash;
@@ -889,19 +889,19 @@
 <a href=#889 id=889 data-nosnippet>889</a>            }
 <a href=#890 id=890 data-nosnippet>890</a>            <span class="self">Self</span>::Boolean(bool_val) =&gt; {
 <a href=#891 id=891 data-nosnippet>891</a>                <span class="kw">match </span>bool_val {
-<a href=#892 id=892 data-nosnippet>892</a>                    <span class="bool-val">false </span>=&gt; <span class="macro">vec!</span>[<span class="self">self</span>.major_type() &lt;&lt; <span class="number">5 </span>| <span class="number">20</span>],
-<a href=#893 id=893 data-nosnippet>893</a>                    <span class="bool-val">true </span>=&gt; <span class="macro">vec!</span>[<span class="self">self</span>.major_type() &lt;&lt; <span class="number">5 </span>| <span class="number">21</span>],
-<a href=#894 id=894 data-nosnippet>894</a>                }
+<a href=#892 id=892 data-nosnippet>892</a>                    <span class="bool-val">false </span>=&gt; <span class="macro">vec!</span>[<span class="self">self</span>.major_type() &lt;&lt; <span class="number">5 </span>| <span class="number">0x14</span>], <span class="comment">// 20
+<a href=#893 id=893 data-nosnippet>893</a>                    </span><span class="bool-val">true </span>=&gt; <span class="macro">vec!</span>[<span class="self">self</span>.major_type() &lt;&lt; <span class="number">5 </span>| <span class="number">0x15</span>],  <span class="comment">// 21
+<a href=#894 id=894 data-nosnippet>894</a>                </span>}
 <a href=#895 id=895 data-nosnippet>895</a>            }
-<a href=#896 id=896 data-nosnippet>896</a>            <span class="self">Self</span>::Null =&gt; <span class="macro">vec!</span>[<span class="self">self</span>.major_type() &lt;&lt; <span class="number">5 </span>| <span class="number">22</span>],
-<a href=#897 id=897 data-nosnippet>897</a>            <span class="self">Self</span>::Undefined =&gt; <span class="macro">vec!</span>[<span class="self">self</span>.major_type() &lt;&lt; <span class="number">5 </span>| <span class="number">23</span>],
-<a href=#898 id=898 data-nosnippet>898</a>            <span class="self">Self</span>::Floating(number) =&gt; encode_f64_number(<span class="self">self</span>.major_type(), <span class="kw-2">*</span>number),
+<a href=#896 id=896 data-nosnippet>896</a>            <span class="self">Self</span>::Null =&gt; <span class="macro">vec!</span>[<span class="self">self</span>.major_type() &lt;&lt; <span class="number">5 </span>| <span class="number">0x16</span>], <span class="comment">// 22
+<a href=#897 id=897 data-nosnippet>897</a>            </span><span class="self">Self</span>::Undefined =&gt; <span class="macro">vec!</span>[<span class="self">self</span>.major_type() &lt;&lt; <span class="number">5 </span>| <span class="number">0x17</span>], <span class="comment">// 23
+<a href=#898 id=898 data-nosnippet>898</a>            </span><span class="self">Self</span>::Floating(number) =&gt; encode_f64_number(<span class="self">self</span>.major_type(), <span class="kw-2">*</span>number),
 <a href=#899 id=899 data-nosnippet>899</a>            <span class="self">Self</span>::GenericSimple(simple_number) =&gt; {
 <a href=#900 id=900 data-nosnippet>900</a>                <span class="kw">if </span><span class="kw-2">**</span>simple_number &lt;= <span class="number">23 </span>{
 <a href=#901 id=901 data-nosnippet>901</a>                    <span class="macro">vec!</span>[<span class="self">self</span>.major_type() &lt;&lt; <span class="number">5 </span>| <span class="kw-2">**</span>simple_number]
 <a href=#902 id=902 data-nosnippet>902</a>                } <span class="kw">else </span>{
-<a href=#903 id=903 data-nosnippet>903</a>                    <span class="macro">vec!</span>[<span class="self">self</span>.major_type() &lt;&lt; <span class="number">5 </span>| <span class="number">24</span>, <span class="kw-2">**</span>simple_number]
-<a href=#904 id=904 data-nosnippet>904</a>                }
+<a href=#903 id=903 data-nosnippet>903</a>                    <span class="macro">vec!</span>[<span class="self">self</span>.major_type() &lt;&lt; <span class="number">5 </span>| <span class="number">0x18</span>, <span class="kw-2">**</span>simple_number] <span class="comment">// 24
+<a href=#904 id=904 data-nosnippet>904</a>                </span>}
 <a href=#905 id=905 data-nosnippet>905</a>            }
 <a href=#906 id=906 data-nosnippet>906</a>        }
 <a href=#907 id=907 data-nosnippet>907</a>    }
@@ -1060,22 +1060,22 @@
 <a href=#1060 id=1060 data-nosnippet>1060</a>        <span class="kw">if </span>u8_value &lt;= <span class="number">23 </span>{
 <a href=#1061 id=1061 data-nosnippet>1061</a>            cbor_representation.push(shifted_major_type | u8_value);
 <a href=#1062 id=1062 data-nosnippet>1062</a>        } <span class="kw">else </span>{
-<a href=#1063 id=1063 data-nosnippet>1063</a>            cbor_representation.push(shifted_major_type | <span class="number">24</span>);
-<a href=#1064 id=1064 data-nosnippet>1064</a>            cbor_representation.push(u8_value);
+<a href=#1063 id=1063 data-nosnippet>1063</a>            cbor_representation.push(shifted_major_type | <span class="number">0x18</span>); <span class="comment">// 24
+<a href=#1064 id=1064 data-nosnippet>1064</a>            </span>cbor_representation.push(u8_value);
 <a href=#1065 id=1065 data-nosnippet>1065</a>        }
 <a href=#1066 id=1066 data-nosnippet>1066</a>    } <span class="kw">else if let </span><span class="prelude-val">Ok</span>(u16_value) = u16::try_from(number) {
-<a href=#1067 id=1067 data-nosnippet>1067</a>        cbor_representation.push(shifted_major_type | <span class="number">25</span>);
-<a href=#1068 id=1068 data-nosnippet>1068</a>        <span class="kw">for </span>byte <span class="kw">in </span>u16_value.to_be_bytes() {
+<a href=#1067 id=1067 data-nosnippet>1067</a>        cbor_representation.push(shifted_major_type | <span class="number">0x19</span>); <span class="comment">// 25
+<a href=#1068 id=1068 data-nosnippet>1068</a>        </span><span class="kw">for </span>byte <span class="kw">in </span>u16_value.to_be_bytes() {
 <a href=#1069 id=1069 data-nosnippet>1069</a>            cbor_representation.push(byte);
 <a href=#1070 id=1070 data-nosnippet>1070</a>        }
 <a href=#1071 id=1071 data-nosnippet>1071</a>    } <span class="kw">else if let </span><span class="prelude-val">Ok</span>(u32_value) = u32::try_from(number) {
-<a href=#1072 id=1072 data-nosnippet>1072</a>        cbor_representation.push(shifted_major_type | <span class="number">26</span>);
-<a href=#1073 id=1073 data-nosnippet>1073</a>        <span class="kw">for </span>byte <span class="kw">in </span>u32_value.to_be_bytes() {
+<a href=#1072 id=1072 data-nosnippet>1072</a>        cbor_representation.push(shifted_major_type | <span class="number">0x1A</span>); <span class="comment">// 26
+<a href=#1073 id=1073 data-nosnippet>1073</a>        </span><span class="kw">for </span>byte <span class="kw">in </span>u32_value.to_be_bytes() {
 <a href=#1074 id=1074 data-nosnippet>1074</a>            cbor_representation.push(byte);
 <a href=#1075 id=1075 data-nosnippet>1075</a>        }
 <a href=#1076 id=1076 data-nosnippet>1076</a>    } <span class="kw">else </span>{
-<a href=#1077 id=1077 data-nosnippet>1077</a>        cbor_representation.push(shifted_major_type | <span class="number">27</span>);
-<a href=#1078 id=1078 data-nosnippet>1078</a>        <span class="kw">for </span>byte <span class="kw">in </span>number.to_be_bytes() {
+<a href=#1077 id=1077 data-nosnippet>1077</a>        cbor_representation.push(shifted_major_type | <span class="number">0x1B</span>); <span class="comment">// 27
+<a href=#1078 id=1078 data-nosnippet>1078</a>        </span><span class="kw">for </span>byte <span class="kw">in </span>number.to_be_bytes() {
 <a href=#1079 id=1079 data-nosnippet>1079</a>            cbor_representation.push(byte);
 <a href=#1080 id=1080 data-nosnippet>1080</a>        }
 <a href=#1081 id=1081 data-nosnippet>1081</a>    }
@@ -1126,18 +1126,18 @@
 <a href=#1126 id=1126 data-nosnippet>1126</a>        reason = <span class="string">"we only want to check truncation data loss"
 <a href=#1127 id=1127 data-nosnippet>1127</a>    </span>)]
 <a href=#1128 id=1128 data-nosnippet>1128</a>    </span><span class="kw">if </span>f16_num.to_f64() == f64_number {
-<a href=#1129 id=1129 data-nosnippet>1129</a>        cbor_representation.push(shifted_major_type | <span class="number">25</span>);
-<a href=#1130 id=1130 data-nosnippet>1130</a>        <span class="kw">for </span>byte <span class="kw">in </span>(f16_num).to_be_bytes() {
+<a href=#1129 id=1129 data-nosnippet>1129</a>        cbor_representation.push(shifted_major_type | <span class="number">0x19</span>); <span class="comment">// 25
+<a href=#1130 id=1130 data-nosnippet>1130</a>        </span><span class="kw">for </span>byte <span class="kw">in </span>(f16_num).to_be_bytes() {
 <a href=#1131 id=1131 data-nosnippet>1131</a>            cbor_representation.push(byte);
 <a href=#1132 id=1132 data-nosnippet>1132</a>        }
 <a href=#1133 id=1133 data-nosnippet>1133</a>    } <span class="kw">else if </span>f64::from(f64_number <span class="kw">as </span>f32) == f64_number {
-<a href=#1134 id=1134 data-nosnippet>1134</a>        cbor_representation.push(shifted_major_type | <span class="number">26</span>);
-<a href=#1135 id=1135 data-nosnippet>1135</a>        <span class="kw">for </span>byte <span class="kw">in </span>(f64_number <span class="kw">as </span>f32).to_be_bytes() {
+<a href=#1134 id=1134 data-nosnippet>1134</a>        cbor_representation.push(shifted_major_type | <span class="number">0x1A</span>); <span class="comment">// 26
+<a href=#1135 id=1135 data-nosnippet>1135</a>        </span><span class="kw">for </span>byte <span class="kw">in </span>(f64_number <span class="kw">as </span>f32).to_be_bytes() {
 <a href=#1136 id=1136 data-nosnippet>1136</a>            cbor_representation.push(byte);
 <a href=#1137 id=1137 data-nosnippet>1137</a>        }
 <a href=#1138 id=1138 data-nosnippet>1138</a>    } <span class="kw">else </span>{
-<a href=#1139 id=1139 data-nosnippet>1139</a>        cbor_representation.push(shifted_major_type | <span class="number">27</span>);
-<a href=#1140 id=1140 data-nosnippet>1140</a>        <span class="kw">for </span>byte <span class="kw">in </span>f64_number.to_be_bytes() {
+<a href=#1139 id=1139 data-nosnippet>1139</a>        cbor_representation.push(shifted_major_type | <span class="number">0x1B</span>); <span class="comment">// 27
+<a href=#1140 id=1140 data-nosnippet>1140</a>        </span><span class="kw">for </span>byte <span class="kw">in </span>f64_number.to_be_bytes() {
 <a href=#1141 id=1141 data-nosnippet>1141</a>            cbor_representation.push(byte);
 <a href=#1142 id=1142 data-nosnippet>1142</a>        }
 <a href=#1143 id=1143 data-nosnippet>1143</a>    }
@@ -1304,7 +1304,7 @@
 <a href=#1304 id=1304 data-nosnippet>1304</a>        }
 <a href=#1305 id=1305 data-nosnippet>1305</a>        <span class="kw">let </span>initial_info = iter.next().ok_or(Error::Incomplete)<span class="question-mark">?</span>;
 <a href=#1306 id=1306 data-nosnippet>1306</a>        <span class="kw">let </span>major_type = initial_info &gt;&gt; <span class="number">5</span>;
-<a href=#1307 id=1307 data-nosnippet>1307</a>        <span class="kw">if </span>expected_major_type != major_type {
+<a href=#1307 id=1307 data-nosnippet>1307</a>        <span class="kw">if </span><span class="macro">expected_major_type !</span>= major_type {
 <a href=#1308 id=1308 data-nosnippet>1308</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(Error::NotWellFormed(<span class="macro">format!</span>(
 <a href=#1309 id=1309 data-nosnippet>1309</a>                <span class="string">"contains invalid major type {major_type} for indefinite major type \
 <a href=#1310 id=1310 data-nosnippet>1310</a>                 {expected_major_type}"
@@ -1322,7 +1322,7 @@
 <a href=#1322 id=1322 data-nosnippet>1322</a><span class="kw">fn </span>extract_array_item(iter: <span class="kw-2">&amp;mut </span>Iter&lt;<span class="lifetime">'_</span>, u8&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;DataItem&gt;, Error&gt; {
 <a href=#1323 id=1323 data-nosnippet>1323</a>    <span class="kw">let </span><span class="kw-2">mut </span>result = <span class="macro">vec!</span>[];
 <a href=#1324 id=1324 data-nosnippet>1324</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(peek_val) = iter.clone().next()
-<a href=#1325 id=1325 data-nosnippet>1325</a>        &amp;&amp; <span class="kw-2">*</span>peek_val != <span class="number">255
+<a href=#1325 id=1325 data-nosnippet>1325</a>        &amp;&amp; <span class="kw-2">*</span><span class="macro">peek_val !</span>= <span class="number">255
 <a href=#1326 id=1326 data-nosnippet>1326</a>    </span>{
 <a href=#1327 id=1327 data-nosnippet>1327</a>        result.push(decode_value(iter)<span class="question-mark">?</span>);
 <a href=#1328 id=1328 data-nosnippet>1328</a>        result.append(<span class="kw-2">&amp;mut </span>extract_array_item(iter)<span class="question-mark">?</span>);
@@ -1333,7 +1333,7 @@
 <a href=#1333 id=1333 data-nosnippet>1333</a><span class="kw">fn </span>extract_map_item(iter: <span class="kw-2">&amp;mut </span>Iter&lt;<span class="lifetime">'_</span>, u8&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;IndexMap&lt;DataItem, DataItem&gt;, Error&gt; {
 <a href=#1334 id=1334 data-nosnippet>1334</a>    <span class="kw">let </span><span class="kw-2">mut </span>result = IndexMap::new();
 <a href=#1335 id=1335 data-nosnippet>1335</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(peek_val) = iter.clone().next()
-<a href=#1336 id=1336 data-nosnippet>1336</a>        &amp;&amp; <span class="kw-2">*</span>peek_val != <span class="number">255
+<a href=#1336 id=1336 data-nosnippet>1336</a>        &amp;&amp; <span class="kw-2">*</span><span class="macro">peek_val !</span>= <span class="number">255
 <a href=#1337 id=1337 data-nosnippet>1337</a>    </span>{
 <a href=#1338 id=1338 data-nosnippet>1338</a>        <span class="kw">let </span>key = decode_value(iter)<span class="question-mark">?</span>;
 <a href=#1339 id=1339 data-nosnippet>1339</a>        <span class="kw">let </span>val = decode_value(iter)<span class="question-mark">?</span>;
@@ -1386,4 +1386,5 @@
 <a href=#1386 id=1386 data-nosnippet>1386</a><span class="kw">fn </span>extract_number(additional: u8, iter: <span class="kw-2">&amp;mut </span>Iter&lt;<span class="lifetime">'_</span>, u8&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;u64, Error&gt; {
 <a href=#1387 id=1387 data-nosnippet>1387</a>    extract_optional_number(additional, iter)<span class="question-mark">?
 <a href=#1388 id=1388 data-nosnippet>1388</a>        </span>.ok_or(Error::NotWellFormed(<span class="string">"failed to extract number"</span>.to_string()))
-<a href=#1389 id=1389 data-nosnippet>1389</a>}</code></pre></div></section></main></body></html>
+<a href=#1389 id=1389 data-nosnippet>1389</a>}
+</code></pre></div></section></main></body></html>
