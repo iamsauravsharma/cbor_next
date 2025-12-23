@@ -889,18 +889,18 @@ impl DataItem {
             }
             Self::Boolean(bool_val) => {
                 match bool_val {
-                    false => vec![self.major_type() << 5 | 20],
-                    true => vec![self.major_type() << 5 | 21],
+                    false => vec![self.major_type() << 5 | 0x14], // 20
+                    true => vec![self.major_type() << 5 | 0x15],  // 21
                 }
             }
-            Self::Null => vec![self.major_type() << 5 | 22],
-            Self::Undefined => vec![self.major_type() << 5 | 23],
+            Self::Null => vec![self.major_type() << 5 | 0x16], // 22
+            Self::Undefined => vec![self.major_type() << 5 | 0x17], // 23
             Self::Floating(number) => encode_f64_number(self.major_type(), *number),
             Self::GenericSimple(simple_number) => {
                 if **simple_number <= 23 {
                     vec![self.major_type() << 5 | **simple_number]
                 } else {
-                    vec![self.major_type() << 5 | 24, **simple_number]
+                    vec![self.major_type() << 5 | 0x18, **simple_number] // 24
                 }
             }
         }
@@ -1060,21 +1060,21 @@ fn encode_u64_number(major_type: u8, number: u64) -> Vec<u8> {
         if u8_value <= 23 {
             cbor_representation.push(shifted_major_type | u8_value);
         } else {
-            cbor_representation.push(shifted_major_type | 24);
+            cbor_representation.push(shifted_major_type | 0x18); // 24
             cbor_representation.push(u8_value);
         }
     } else if let Ok(u16_value) = u16::try_from(number) {
-        cbor_representation.push(shifted_major_type | 25);
+        cbor_representation.push(shifted_major_type | 0x19); // 25
         for byte in u16_value.to_be_bytes() {
             cbor_representation.push(byte);
         }
     } else if let Ok(u32_value) = u32::try_from(number) {
-        cbor_representation.push(shifted_major_type | 26);
+        cbor_representation.push(shifted_major_type | 0x1A); // 26
         for byte in u32_value.to_be_bytes() {
             cbor_representation.push(byte);
         }
     } else {
-        cbor_representation.push(shifted_major_type | 27);
+        cbor_representation.push(shifted_major_type | 0x1B); // 27
         for byte in number.to_be_bytes() {
             cbor_representation.push(byte);
         }
@@ -1126,17 +1126,17 @@ fn encode_f64_number(major_type: u8, f64_number: f64) -> Vec<u8> {
         reason = "we only want to check truncation data loss"
     )]
     if f16_num.to_f64() == f64_number {
-        cbor_representation.push(shifted_major_type | 25);
+        cbor_representation.push(shifted_major_type | 0x19); // 25
         for byte in (f16_num).to_be_bytes() {
             cbor_representation.push(byte);
         }
     } else if f64::from(f64_number as f32) == f64_number {
-        cbor_representation.push(shifted_major_type | 26);
+        cbor_representation.push(shifted_major_type | 0x1A); // 26
         for byte in (f64_number as f32).to_be_bytes() {
             cbor_representation.push(byte);
         }
     } else {
-        cbor_representation.push(shifted_major_type | 27);
+        cbor_representation.push(shifted_major_type | 0x1B); // 27
         for byte in f64_number.to_be_bytes() {
             cbor_representation.push(byte);
         }
