@@ -1,5 +1,4 @@
 #![expect(clippy::panic, reason = "allow panic in tests")]
-use core::f64;
 use std::vec;
 
 use indexmap::IndexMap;
@@ -93,7 +92,21 @@ fn float() {
     decode_compare("faff800000", f64::NEG_INFINITY);
     decode_compare("fb7ff0000000000000", f64::INFINITY);
     decode_compare("fbfff0000000000000", f64::NEG_INFINITY);
-    encode_compare("fb7ff8000000000000", f64::NAN);
+    encode_compare("f97e00", f64::NAN);
+    encode_compare("f97e00", f64::from_bits(0x7ff8_0000_0000_0000));
+    // NaN in all three widths from RFC 8949 appendix A must decode to NaN
+    for hex_nan in ["f97e00", "fa7fc00000", "fb7ff8000000000000"] {
+        let value = DataItem::decode(&hex::decode(hex_nan).unwrap())
+            .unwrap_or_else(|err| panic!("{err} failed to decode value {hex_nan}"));
+        assert!(
+            value.as_floating().is_some_and(f64::is_nan),
+            "{hex_nan} should decode to NaN"
+        );
+        assert_eq!(value.encode(), hex::decode("f97e00").unwrap(), "{hex_nan}");
+    }
+    encode_compare("fa7fc00002", f64::from_bits(0x7ff8_0000_4000_0000));
+    encode_compare("fb7ff8000000000001", f64::from_bits(0x7ff8_0000_0000_0001));
+    encode_compare("f9fe00", f64::from_bits(0xfff8_0000_0000_0000));
 }
 
 #[test]
@@ -133,6 +146,14 @@ fn tag() {
     compare_cbor_value(
         "d82076687474703a2f2f7777772e6578616d706c652e636f6d",
         TagContent::from((32, "http://www.example.com")),
+    );
+    compare_cbor_value(
+        "c249010000000000000000",
+        TagContent::from((2, hex::decode("010000000000000000").unwrap().as_slice())),
+    );
+    compare_cbor_value(
+        "c349010000000000000000",
+        TagContent::from((3, hex::decode("010000000000000000").unwrap().as_slice())),
     );
 }
 
@@ -213,6 +234,16 @@ fn array() {
         ArrayContent::default()
             .set_indefinite(true)
             .set_content::<DataItem>(&[1.into(), vec![2, 3].into(), vec![4, 5].into()])
+            .clone(),
+    );
+    decode_compare(
+        "9f0102030405060708090a0b0c0d0e0f101112131415161718181819ff",
+        ArrayContent::default()
+            .set_indefinite(true)
+            .set_content(&[
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+                24, 25,
+            ])
             .clone(),
     );
     decode_compare::<Vec<DataItem>>(
@@ -393,6 +424,78 @@ fn failure() {
 }
 
 #[test]
+fn trailing_and_duplicate_failure() {
+    assert_eq!(
+        DataItem::decode(&hex::decode("0001").unwrap()),
+        Err(Error::TrailingBytes)
+    );
+    assert_eq!(
+        DataItem::decode(&hex::decode("f8").unwrap()),
+        Err(Error::Incomplete)
+    );
+    assert_eq!(
+        DataItem::decode(&hex::decode("a201020103").unwrap()),
+        Err(Error::NotWellFormed(
+            "same map key 1 is repeated multiple times".to_string()
+        ))
+    );
+    assert_eq!(
+        DataItem::decode(&hex::decode("bf01020103ff").unwrap()),
+        Err(Error::NotWellFormed(
+            "same map key 1 is repeated multiple times".to_string()
+        ))
+    );
+}
+
+#[test]
+fn nesting_depth_limit() {
+    assert_eq!(
+        DataItem::decode(&vec![0x9f; 1_000_000]),
+        Err(Error::RecursionLimit)
+    );
+    assert_eq!(
+        DataItem::decode(&vec![0x81; 1_000_000]),
+        Err(Error::RecursionLimit)
+    );
+    assert_eq!(
+        DataItem::decode(&vec![0xc0; 1_000_000]),
+        Err(Error::RecursionLimit)
+    );
+    let mut nested = vec![0x81; 100];
+    nested.push(0x01);
+    assert!(DataItem::decode(&nested).is_ok());
+}
+
+#[test]
+fn signed_minimum() {
+    let minimum = DataItem::decode(&hex::decode("3bffffffffffffffff").unwrap()).unwrap();
+    assert_eq!(minimum.as_signed(), Some(-18_446_744_073_709_551_616_i128));
+    assert_eq!(minimum.as_number(), Some(-18_446_744_073_709_551_616_i128));
+    assert_eq!(format!("{minimum:?}"), "-18446744073709551616");
+}
+
+#[test]
+fn hash_matches_equality() {
+    use std::hash::BuildHasher as _;
+
+    let hasher_builder = std::hash::RandomState::new();
+    let first_map = DataItem::from(vec![(1, 2), (3, 4)]);
+    let second_map = DataItem::from(vec![(3, 4), (1, 2)]);
+    assert_eq!(first_map, second_map);
+    assert_eq!(
+        hasher_builder.hash_one(&first_map),
+        hasher_builder.hash_one(&second_map)
+    );
+    let positive_zero = DataItem::from(0.0);
+    let negative_zero = DataItem::from(-0.0);
+    assert_eq!(positive_zero, negative_zero);
+    assert_eq!(
+        hasher_builder.hash_one(&positive_zero),
+        hasher_builder.hash_one(&negative_zero)
+    );
+}
+
+#[test]
 fn core_deterministic() {
     let key_value_vec = vec![
         (10.into(), "abc".into()),
@@ -460,6 +563,42 @@ fn length_core_deterministic() {
         DataItem::Map(IndexMap::from_iter(key_value_vec).into()),
         deterministic
     );
+}
+
+#[test]
+fn deterministic_checks_nested_map_entries() {
+    for mode in [DeterministicMode::Core, DeterministicMode::LengthFirst] {
+        let indefinite_value = DataItem::Map(
+            IndexMap::from_iter(vec![(
+                DataItem::from(1),
+                DataItem::Array(
+                    ArrayContent::default()
+                        .set_indefinite(true)
+                        .set_content(&[2])
+                        .clone(),
+                ),
+            )])
+            .into(),
+        );
+        assert!(!indefinite_value.is_deterministic(&mode));
+        let canonical = indefinite_value.deterministic(&mode);
+        assert!(canonical.is_deterministic(&mode));
+        let indefinite_key = DataItem::Map(
+            IndexMap::from_iter(vec![(
+                DataItem::Text(
+                    TextContent::default()
+                        .set_indefinite(true)
+                        .push_string("a")
+                        .clone(),
+                ),
+                DataItem::from(1),
+            )])
+            .into(),
+        );
+        assert!(!indefinite_key.is_deterministic(&mode));
+        let canonical = indefinite_key.deterministic(&mode);
+        assert!(canonical.is_deterministic(&mode));
+    }
 }
 
 #[test]

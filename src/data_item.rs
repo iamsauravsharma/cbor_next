@@ -1,7 +1,6 @@
-use core::f64;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Write as _};
-use std::hash::Hash;
+use std::hash::{DefaultHasher, Hash, Hasher as _};
 use std::num::TryFromIntError;
 use std::slice::Iter;
 
@@ -87,7 +86,7 @@ impl Debug for DataItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Unsigned(number) => number.fmt(f),
-            Self::Signed(number) => (-i128::from(number + 1)).fmt(f),
+            Self::Signed(number) => (-(i128::from(*number) + 1)).fmt(f),
             Self::Floating(number) => {
                 if number.is_nan() {
                     return write!(f, "NaN");
@@ -180,15 +179,25 @@ impl Hash for DataItem {
             Self::Array(values) => values.hash(state),
             Self::Map(index_map) => {
                 index_map.is_indefinite().hash(state);
-                let vals = index_map.map().iter().collect::<Vec<(_, _)>>();
-                vals.hash(state);
+                index_map.map().len().hash(state);
+                let mut combined: u64 = 0;
+                for entry in index_map.map() {
+                    let mut entry_hasher = DefaultHasher::new();
+                    entry.hash(&mut entry_hasher);
+                    combined = combined.wrapping_add(entry_hasher.finish());
+                }
+                state.write_u64(combined);
             }
             Self::Tag(tag_content) => {
                 tag_content.number().hash(state);
                 tag_content.content().hash(state);
             }
             Self::Boolean(val) => val.hash(state),
-            Self::Floating(val) => val.to_be_bytes().hash(state),
+            Self::Floating(val) => {
+                // normalize -0.0 and 0.0 to the same representation for hashing
+                let normalized = if *val == 0.0 { 0.0 } else { *val };
+                normalized.to_be_bytes().hash(state);
+            }
             Self::GenericSimple(simple_number) => simple_number.hash(state),
             _ => {}
         }
@@ -589,7 +598,7 @@ impl DataItem {
     #[must_use]
     pub fn as_signed(&self) -> Option<i128> {
         match self {
-            Self::Signed(num) => Some(-i128::from(num + 1)),
+            Self::Signed(num) => Some(-(i128::from(*num) + 1)),
             _ => None,
         }
     }
@@ -607,7 +616,7 @@ impl DataItem {
     pub fn as_number(&self) -> Option<i128> {
         match self {
             Self::Unsigned(num) => Some(i128::from(*num)),
-            Self::Signed(num) => Some(-i128::from(num + 1)),
+            Self::Signed(num) => Some(-(i128::from(*num) + 1)),
             _ => None,
         }
     }
@@ -814,93 +823,88 @@ impl DataItem {
     /// ```
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
+        let mut buffer = vec![];
+        self.encode_into(&mut buffer);
+        buffer
+    }
+
+    /// Encode a data item by appending its bytes to the provided buffer so
+    /// nested items reuse one allocation
+    fn encode_into(&self, buffer: &mut Vec<u8>) {
         match self {
             Self::Unsigned(number) | Self::Signed(number) => {
-                encode_u64_number(self.major_type(), *number)
+                encode_u64_number(buffer, self.major_type(), *number);
             }
-            Self::Byte(byte) => encode_vec_u8(self.major_type(), byte),
+            Self::Byte(byte) => {
+                encode_chunks(
+                    buffer,
+                    self.major_type(),
+                    byte.is_indefinite(),
+                    byte.chunk(),
+                );
+            }
             Self::Text(text_content) => {
-                encode_vec_u8(self.major_type(), &text_content.clone().into())
+                encode_chunks(
+                    buffer,
+                    self.major_type(),
+                    text_content.is_indefinite(),
+                    text_content.chunk(),
+                );
             }
             Self::Array(array) => {
-                let mut array_bytes = vec![];
-                if array.is_indefinite() {
-                    array_bytes.push(self.major_type() << 5 | 31);
-                    for val in array.array() {
-                        array_bytes.append(&mut val.encode());
-                    }
-                    array_bytes.push(255);
+                let is_finite = !array.is_indefinite();
+                let definite_length = is_finite
+                    .then(|| u64::try_from(array.array().len()).ok())
+                    .flatten();
+                if let Some(length) = definite_length {
+                    encode_u64_number(buffer, self.major_type(), length);
                 } else {
-                    let array_len = u64::try_from(array.array().len());
-                    if let Ok(length) = array_len {
-                        array_bytes.extend(encode_u64_number(self.major_type(), length));
-                        for val in array.array() {
-                            array_bytes.append(&mut val.encode());
-                        }
-                    } else {
-                        array_bytes.extend(
-                            Self::Array(
-                                ArrayContent::default()
-                                    .set_indefinite(true)
-                                    .set_content(array.array())
-                                    .clone(),
-                            )
-                            .encode(),
-                        );
-                    }
+                    // Indefinite length array
+                    buffer.push(self.major_type() << 5 | 31);
                 }
-                array_bytes
+                for val in array.array() {
+                    val.encode_into(buffer);
+                }
+                // Append break code for indefinite length array
+                if definite_length.is_none() {
+                    buffer.push(255);
+                }
             }
             Self::Map(map) => {
-                let mut map_bytes = vec![];
-                if map.is_indefinite() {
-                    map_bytes.push(self.major_type() << 5 | 31);
-                    for (key, value) in map.map() {
-                        map_bytes.append(&mut key.encode());
-                        map_bytes.append(&mut value.encode());
-                    }
-                    map_bytes.push(255);
+                let is_finite = !map.is_indefinite();
+                let definite_length = is_finite
+                    .then(|| u64::try_from(map.map().len()).ok())
+                    .flatten();
+                if let Some(length) = definite_length {
+                    encode_u64_number(buffer, self.major_type(), length);
                 } else {
-                    let map_len = u64::try_from(map.map().len());
-                    if let Ok(length) = map_len {
-                        map_bytes.extend(encode_u64_number(self.major_type(), length));
-                        for (key, value) in map.map() {
-                            map_bytes.append(&mut key.encode());
-                            map_bytes.append(&mut value.encode());
-                        }
-                    } else {
-                        map_bytes.extend(
-                            Self::Map(
-                                MapContent::default()
-                                    .set_indefinite(true)
-                                    .set_content(map.map())
-                                    .clone(),
-                            )
-                            .encode(),
-                        );
-                    }
+                    // Indefinite length map
+                    buffer.push(self.major_type() << 5 | 31);
                 }
-                map_bytes
+                for (key, value) in map.map() {
+                    key.encode_into(buffer);
+                    value.encode_into(buffer);
+                }
+                // Append break code for indefinite length map
+                if definite_length.is_none() {
+                    buffer.push(255);
+                }
             }
             Self::Tag(tag_content) => {
-                let mut tag_bytes = encode_u64_number(self.major_type(), tag_content.number());
-                tag_bytes.append(&mut tag_content.content().encode());
-                tag_bytes
+                encode_u64_number(buffer, self.major_type(), tag_content.number());
+                tag_content.content().encode_into(buffer);
             }
-            Self::Boolean(bool_val) => {
-                match bool_val {
-                    false => vec![self.major_type() << 5 | 0x14], // 20
-                    true => vec![self.major_type() << 5 | 0x15],  // 21
-                }
-            }
-            Self::Null => vec![self.major_type() << 5 | 0x16], // 22
-            Self::Undefined => vec![self.major_type() << 5 | 0x17], // 23
-            Self::Floating(number) => encode_f64_number(self.major_type(), *number),
+            Self::Boolean(false) => buffer.push(self.major_type() << 5 | 0x14), // 20
+            Self::Boolean(true) => buffer.push(self.major_type() << 5 | 0x15),  // 21
+            Self::Null => buffer.push(self.major_type() << 5 | 0x16),           // 22
+            Self::Undefined => buffer.push(self.major_type() << 5 | 0x17),      // 23
+            Self::Floating(number) => encode_f64_number(buffer, self.major_type(), *number),
             Self::GenericSimple(simple_number) => {
                 if **simple_number <= 23 {
-                    vec![self.major_type() << 5 | **simple_number]
+                    buffer.push(self.major_type() << 5 | **simple_number);
                 } else {
-                    vec![self.major_type() << 5 | 0x18, **simple_number] // 24
+                    buffer.push(self.major_type() << 5 | 0x18); // 24
+                    buffer.push(**simple_number);
                 }
             }
         }
@@ -918,10 +922,17 @@ impl DataItem {
     /// ```
     ///
     /// # Errors
-    /// If provided bytes cannot be converted to CBOR
+    /// If provided bytes cannot be converted to CBOR, if bytes remain after a
+    /// complete data item, or if nesting exceeds the supported maximum depth
     pub fn decode(val: &[u8]) -> Result<Self, Error> {
         let mut iter = val.iter();
-        decode_value(&mut iter)
+        let value = decode_value(&mut iter, MAX_NESTING_DEPTH)?;
+        // if there are any remaining bytes after decoding, it indicates that the input
+        // was not fully consumed, which is considered an error in this context.
+        if iter.next().is_some() {
+            return Err(Error::TrailingBytes);
+        }
+        Ok(value)
     }
 
     /// Check current data item is deterministic form
@@ -933,21 +944,22 @@ impl DataItem {
                     return false;
                 }
                 let map = index_map.map();
-                map.iter()
-                    .zip(map.iter().skip(1))
-                    .all(|((k1, _), (k2, _))| {
-                        let key1_encode = k1.encode();
-                        let key2_encode = k2.encode();
-                        match mode {
-                            DeterministicMode::Core => key1_encode <= key2_encode,
-                            DeterministicMode::LengthFirst => {
-                                match key1_encode.len().cmp(&key2_encode.len()) {
-                                    Ordering::Equal => key1_encode <= key2_encode,
-                                    Ordering::Greater => false,
-                                    Ordering::Less => true,
-                                }
+                let encoded_keys = map.keys().map(Self::encode).collect::<Vec<_>>();
+                let keys_sorted = encoded_keys.windows(2).all(|pair| {
+                    match mode {
+                        DeterministicMode::Core => pair[0] <= pair[1],
+                        DeterministicMode::LengthFirst => {
+                            match pair[0].len().cmp(&pair[1].len()) {
+                                Ordering::Equal => pair[0] <= pair[1],
+                                Ordering::Greater => false,
+                                Ordering::Less => true,
                             }
                         }
+                    }
+                });
+                keys_sorted
+                    && map.iter().all(|(key, value)| {
+                        key.is_deterministic(mode) && value.is_deterministic(mode)
                     })
             }
             Self::Array(val) => {
@@ -1053,69 +1065,68 @@ fn as_tag_nested(item: &DataItem, tags: &mut Vec<u64>) -> DataItem {
     }
 }
 
-fn encode_u64_number(major_type: u8, number: u64) -> Vec<u8> {
+fn encode_u64_number(buffer: &mut Vec<u8>, major_type: u8, number: u64) {
     let shifted_major_type = major_type << 5;
-    let mut cbor_representation = vec![];
     if let Ok(u8_value) = u8::try_from(number) {
         if u8_value <= 23 {
-            cbor_representation.push(shifted_major_type | u8_value);
+            buffer.push(shifted_major_type | u8_value);
         } else {
-            cbor_representation.push(shifted_major_type | 0x18); // 24
-            cbor_representation.push(u8_value);
+            buffer.push(shifted_major_type | 0x18); // 24
+            buffer.push(u8_value);
         }
     } else if let Ok(u16_value) = u16::try_from(number) {
-        cbor_representation.push(shifted_major_type | 0x19); // 25
-        for byte in u16_value.to_be_bytes() {
-            cbor_representation.push(byte);
-        }
+        buffer.push(shifted_major_type | 0x19); // 25
+        buffer.extend_from_slice(&u16_value.to_be_bytes());
     } else if let Ok(u32_value) = u32::try_from(number) {
-        cbor_representation.push(shifted_major_type | 0x1A); // 26
-        for byte in u32_value.to_be_bytes() {
-            cbor_representation.push(byte);
-        }
+        buffer.push(shifted_major_type | 0x1A); // 26
+        buffer.extend_from_slice(&u32_value.to_be_bytes());
     } else {
-        cbor_representation.push(shifted_major_type | 0x1B); // 27
-        for byte in number.to_be_bytes() {
-            cbor_representation.push(byte);
-        }
+        buffer.push(shifted_major_type | 0x1B); // 27
+        buffer.extend_from_slice(&number.to_be_bytes());
     }
-    cbor_representation
 }
 
-fn encode_vec_u8(major_type: u8, byte: &ByteContent) -> Vec<u8> {
-    let mut bytes = vec![];
-    if byte.is_indefinite() {
-        bytes.push(major_type << 5 | 31);
-        for chunk in byte.chunk() {
-            let mut encoded_fixed_length = encode_vec_u8(
-                major_type,
-                ByteContent::default()
-                    .set_indefinite(false)
-                    .set_bytes(chunk),
-            );
-            bytes.append(&mut encoded_fixed_length);
-        }
-        bytes.push(255);
+/// Encode a byte or text content from its chunks without concatenating them
+/// into an intermediate allocation
+fn encode_chunks<T>(buffer: &mut Vec<u8>, major_type: u8, is_indefinite: bool, chunks: &[T])
+where
+    T: AsRef<[u8]>,
+{
+    let definite_length = if is_indefinite {
+        None
     } else {
-        let byte_length = u64::try_from(byte.full().len());
-        if let Ok(length) = byte_length {
-            bytes.append(&mut encode_u64_number(major_type, length));
-            bytes.append(&mut byte.full().clone());
-        } else {
-            bytes.append(&mut encode_vec_u8(
-                major_type,
-                ByteContent::default()
-                    .set_indefinite(true)
-                    .set_bytes(&byte.full()),
-            ));
+        // Calculate the total length of all chunks, returning None if any chunk's
+        // length cannot be represented as a u64 or if the total length would overflow
+        // u64
+        chunks.iter().try_fold(0u64, |length, chunk| {
+            length.checked_add(u64::try_from(chunk.as_ref().len()).ok()?)
+        })
+    };
+    if let Some(length) = definite_length {
+        encode_u64_number(buffer, major_type, length);
+        for chunk in chunks {
+            buffer.extend_from_slice(chunk.as_ref());
         }
+    } else {
+        // Indefinite length encoding
+        buffer.push(major_type << 5 | 31);
+        for chunk in chunks {
+            let chunk = chunk.as_ref();
+            let chunk_length =
+                u64::try_from(chunk.len()).expect("single in-memory chunk length fits in u64");
+            encode_u64_number(buffer, major_type, chunk_length);
+            buffer.extend_from_slice(chunk);
+        }
+        buffer.push(255);
     }
-    bytes
 }
 
-fn encode_f64_number(major_type: u8, f64_number: f64) -> Vec<u8> {
+fn encode_f64_number(buffer: &mut Vec<u8>, major_type: u8, f64_number: f64) {
     let shifted_major_type = major_type << 5;
-    let mut cbor_representation = vec![];
+    if f64_number.is_nan() {
+        encode_f64_nan(buffer, shifted_major_type, f64_number);
+        return;
+    }
     let f16_num = half::f16::from_f64(f64_number);
     #[expect(
         clippy::float_cmp,
@@ -1126,25 +1137,61 @@ fn encode_f64_number(major_type: u8, f64_number: f64) -> Vec<u8> {
         reason = "we only want to check truncation data loss"
     )]
     if f16_num.to_f64() == f64_number {
-        cbor_representation.push(shifted_major_type | 0x19); // 25
-        for byte in (f16_num).to_be_bytes() {
-            cbor_representation.push(byte);
-        }
+        buffer.push(shifted_major_type | 0x19); // 25
+        buffer.extend_from_slice(&f16_num.to_be_bytes());
     } else if f64::from(f64_number as f32) == f64_number {
-        cbor_representation.push(shifted_major_type | 0x1A); // 26
-        for byte in (f64_number as f32).to_be_bytes() {
-            cbor_representation.push(byte);
-        }
+        buffer.push(shifted_major_type | 0x1A); // 26
+        buffer.extend_from_slice(&(f64_number as f32).to_be_bytes());
     } else {
-        cbor_representation.push(shifted_major_type | 0x1B); // 27
-        for byte in f64_number.to_be_bytes() {
-            cbor_representation.push(byte);
-        }
+        buffer.push(shifted_major_type | 0x1B); // 27
+        buffer.extend_from_slice(&f64_number.to_be_bytes());
     }
-    cbor_representation
 }
 
-fn decode_value(iter: &mut Iter<'_, u8>) -> Result<DataItem, Error> {
+/// Encode a NaN in the shortest floating-point form that preserves its sign
+/// and payload, as required by RFC 8949 preferred serialization.
+fn encode_f64_nan(buffer: &mut Vec<u8>, shifted_major_type: u8, f64_number: f64) {
+    /// Low mantissa bits of a f64 which are discarded when narrowing to f16
+    const F16_DISCARDED_MANTISSA: u64 = (1 << 42) - 1;
+    /// Low mantissa bits of a f64 which are discarded when narrowing to f32
+    const F32_DISCARDED_MANTISSA: u64 = (1 << 29) - 1;
+    let bits = f64_number.to_bits();
+    if bits & F16_DISCARDED_MANTISSA == 0 {
+        let sign = (bits >> 48) & 0x8000;
+        let exponent = 0x7C00;
+        let mantissa = (bits >> 42) & 0x03FF;
+        let f16_bits = sign | exponent | mantissa;
+        buffer.push(shifted_major_type | 0x19); // 25
+        buffer.extend_from_slice(
+            &u16::try_from(f16_bits)
+                .expect("value is masked to 16 bits")
+                .to_be_bytes(),
+        );
+    } else if bits & F32_DISCARDED_MANTISSA == 0 {
+        let sign = (bits >> 32) & 0x8000_0000;
+        let exponent = 0x7F80_0000;
+        let mantissa = (bits >> 29) & 0x007F_FFFF;
+        let f32_bits = sign | exponent | mantissa;
+        buffer.push(shifted_major_type | 0x1A); // 26
+        buffer.extend_from_slice(
+            &u32::try_from(f32_bits)
+                .expect("value is masked to 32 bits")
+                .to_be_bytes(),
+        );
+    } else {
+        buffer.push(shifted_major_type | 0x1B); // 27
+        buffer.extend_from_slice(&bits.to_be_bytes());
+    }
+}
+
+/// Maximum nesting depth accepted while decoding. Bounding the depth keeps
+/// recursion on maliciously nested input from overflowing the stack
+const MAX_NESTING_DEPTH: usize = 128;
+
+fn decode_value(iter: &mut Iter<'_, u8>, remaining_depth: usize) -> Result<DataItem, Error> {
+    let Some(next_depth) = remaining_depth.checked_sub(1) else {
+        return Err(Error::RecursionLimit);
+    };
     let initial_info = iter.next().ok_or(Error::Incomplete)?;
     let major_type = initial_info >> 5;
     let additional = initial_info & 0b0001_1111;
@@ -1161,11 +1208,11 @@ fn decode_value(iter: &mut Iter<'_, u8>) -> Result<DataItem, Error> {
                 decode_byte_or_text(major_type, additional, iter)?.try_into()?,
             ))
         }
-        4 => decode_array(additional, iter),
-        5 => decode_map(additional, iter),
+        4 => decode_array(additional, iter, next_depth),
+        5 => decode_map(additional, iter, next_depth),
         6 => {
             let tag_number = extract_number(additional, iter)?;
-            let tag_value = decode_value(iter)?;
+            let tag_value = decode_value(iter, next_depth)?;
             Ok(DataItem::Tag(TagContent::from((tag_number, tag_value))))
         }
         7 => decode_simple_or_floating(additional, iter),
@@ -1185,66 +1232,99 @@ fn decode_byte_or_text(
         byte_content.set_bytes(&collect_vec_u8(iter, num)?);
     } else {
         byte_content.set_indefinite(true);
-        byte_content.extend_bytes(&decode_indefinite_byte_or_text(major_type, iter)?);
-        iter.next();
+        loop {
+            let initial_info = iter.next().ok_or(Error::IncompleteIndefinite)?;
+            if *initial_info == 255 {
+                break;
+            }
+            let chunk_major_type = initial_info >> 5;
+            if chunk_major_type != major_type {
+                return Err(Error::NotWellFormed(format!(
+                    "contains invalid major type {chunk_major_type} for indefinite major type \
+                     {major_type}"
+                )));
+            }
+            let chunk_additional = initial_info & 0b0001_1111;
+            let chunk_length = extract_number(chunk_additional, iter)?;
+            byte_content.push_bytes(&collect_vec_u8(iter, chunk_length)?);
+        }
     }
     Ok(byte_content)
 }
 
-fn decode_array(additional: u8, iter: &mut Iter<'_, u8>) -> Result<DataItem, Error> {
+fn decode_array(additional: u8, iter: &mut Iter<'_, u8>, depth: usize) -> Result<DataItem, Error> {
     let length = extract_optional_number(additional, iter)?;
     let mut val_vec = vec![];
     let mut array_content = ArrayContent::default();
     array_content.set_indefinite(length.is_none());
     if let Some(num) = length {
         for _ in 0..num {
-            val_vec.push(decode_value(iter)?);
+            val_vec.push(decode_value(iter, depth)?);
         }
     } else {
-        val_vec.append(&mut extract_array_item(iter)?);
-        match iter.clone().next() {
-            Some(255) => {
-                iter.next();
+        loop {
+            match iter.clone().next() {
+                Some(255) => {
+                    iter.next();
+                    break;
+                }
+                Some(_) => val_vec.push(decode_value(iter, depth)?),
+                None => return Err(Error::IncompleteIndefinite),
             }
-            None => {
-                return Err(Error::IncompleteIndefinite);
-            }
-            _ => unreachable!("non 255 some value should be handled already"),
         }
     }
     Ok(DataItem::Array(array_content.set_content(&val_vec).clone()))
 }
 
-fn decode_map(additional: u8, iter: &mut Iter<'_, u8>) -> Result<DataItem, Error> {
+fn decode_map(additional: u8, iter: &mut Iter<'_, u8>, depth: usize) -> Result<DataItem, Error> {
     let length: Option<u64> = extract_optional_number(additional, iter)?;
     let mut map_index_map = IndexMap::new();
     let mut map_content = MapContent::default();
     map_content.set_indefinite(length.is_none());
     if let Some(num) = length {
         for _ in 0..num {
-            let key = decode_value(iter)?;
-            let val = decode_value(iter)?;
-            if map_index_map.insert(key.clone(), val).is_some() {
-                return Err(Error::NotWellFormed(format!(
-                    "same map key {key:#?} is repeated multiple times"
-                )));
-            }
+            let key = decode_value(iter, depth)?;
+            let val = decode_value(iter, depth)?;
+            insert_unique_key(&mut map_index_map, key, val)?;
         }
     } else {
-        map_index_map.extend(extract_map_item(iter)?);
-        match iter.clone().next() {
-            Some(255) => {
-                iter.next();
+        loop {
+            match iter.clone().next() {
+                Some(255) => {
+                    iter.next();
+                    break;
+                }
+                Some(_) => {
+                    let key = decode_value(iter, depth)?;
+                    let val = decode_value(iter, depth)?;
+                    insert_unique_key(&mut map_index_map, key, val)?;
+                }
+                None => return Err(Error::IncompleteIndefinite),
             }
-            None => {
-                return Err(Error::IncompleteIndefinite);
-            }
-            _ => unreachable!("non 255 some value should be handled already"),
         }
     }
     Ok(DataItem::Map(
         map_content.set_content(&map_index_map).clone(),
     ))
+}
+
+fn insert_unique_key(
+    map: &mut IndexMap<DataItem, DataItem>,
+    key: DataItem,
+    value: DataItem,
+) -> Result<(), Error> {
+    match map.entry(key) {
+        indexmap::map::Entry::Occupied(entry) => {
+            Err(Error::NotWellFormed(format!(
+                "same map key {:#?} is repeated multiple times",
+                entry.key()
+            )))
+        }
+        indexmap::map::Entry::Vacant(entry) => {
+            entry.insert(value);
+            Ok(())
+        }
+    }
 }
 
 fn decode_simple_or_floating(additional: u8, iter: &mut Iter<'_, u8>) -> Result<DataItem, Error> {
@@ -1255,14 +1335,11 @@ fn decode_simple_or_floating(additional: u8, iter: &mut Iter<'_, u8>) -> Result<
         22 => Ok(DataItem::Null),
         23 => Ok(DataItem::Undefined),
         24 => {
-            if let Some(next_num) = iter.next() {
-                if *next_num < 32 {
-                    Err(Error::InvalidSimple)
-                } else {
-                    Ok(DataItem::GenericSimple((*next_num).try_into()?))
-                }
-            } else {
+            let next_num = iter.next().ok_or(Error::Incomplete)?;
+            if *next_num < 32 {
                 Err(Error::InvalidSimple)
+            } else {
+                Ok(DataItem::GenericSimple((*next_num).try_into()?))
             }
         }
         25 => {
@@ -1291,60 +1368,6 @@ fn decode_simple_or_floating(additional: u8, iter: &mut Iter<'_, u8>) -> Result<
         31 => Err(Error::InvalidBreakStop),
         _ => unreachable!("Cannot have additional info value greater than 31"),
     }
-}
-
-fn decode_indefinite_byte_or_text(
-    expected_major_type: u8,
-    iter: &mut Iter<'_, u8>,
-) -> Result<Vec<Vec<u8>>, Error> {
-    let mut result = vec![];
-    if let Some(peek_val) = iter.clone().next() {
-        if *peek_val == 255 {
-            return Ok(result);
-        }
-        let initial_info = iter.next().ok_or(Error::Incomplete)?;
-        let major_type = initial_info >> 5;
-        if expected_major_type != major_type {
-            return Err(Error::NotWellFormed(format!(
-                "contains invalid major type {major_type} for indefinite major type \
-                 {expected_major_type}"
-            )));
-        }
-        let additional = initial_info & 0b0001_1111;
-        let length = extract_number(additional, iter)?;
-        result.push(collect_vec_u8(iter, length)?);
-        result.extend(decode_indefinite_byte_or_text(expected_major_type, iter)?);
-        return Ok(result);
-    }
-    Err(Error::IncompleteIndefinite)
-}
-
-fn extract_array_item(iter: &mut Iter<'_, u8>) -> Result<Vec<DataItem>, Error> {
-    let mut result = vec![];
-    if let Some(peek_val) = iter.clone().next()
-        && *peek_val != 255
-    {
-        result.push(decode_value(iter)?);
-        result.append(&mut extract_array_item(iter)?);
-    }
-    Ok(result)
-}
-
-fn extract_map_item(iter: &mut Iter<'_, u8>) -> Result<IndexMap<DataItem, DataItem>, Error> {
-    let mut result = IndexMap::new();
-    if let Some(peek_val) = iter.clone().next()
-        && *peek_val != 255
-    {
-        let key = decode_value(iter)?;
-        let val = decode_value(iter)?;
-        if result.insert(key.clone(), val).is_some() {
-            return Err(Error::NotWellFormed(format!(
-                "same map key {key:#?} is repeated multiple times"
-            )));
-        }
-        result.extend(extract_map_item(iter)?);
-    }
-    Ok(result)
 }
 
 fn collect_vec_u8(iter: &mut Iter<'_, u8>, number: u64) -> Result<Vec<u8>, Error> {
