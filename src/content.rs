@@ -175,7 +175,7 @@ impl TextContent {
         self.strings.join("")
     }
 
-    /// Get chunk of  strings from a string content
+    /// Get chunk of strings from a string content
     #[must_use]
     pub fn chunk(&self) -> &[String] {
         &self.strings

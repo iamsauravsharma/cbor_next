@@ -19,6 +19,10 @@ pub enum Error {
     NotWellFormed(String),
     /// Invalid break stop position
     InvalidBreakStop,
+    /// Nesting depth of a data item exceeds the supported maximum
+    RecursionLimit,
+    /// Extra bytes remain after a complete data item was decoded
+    TrailingBytes,
 }
 
 impl From<FromUtf8Error> for Error {
@@ -42,7 +46,7 @@ impl std::fmt::Display for Error {
             Self::InvalidSimple => {
                 write!(
                     f,
-                    "invalid simple value simple value cannot be between 20-32"
+                    "invalid simple value: simple value cannot be between 20 and 31"
                 )
             }
             Self::FromInt(internal_err) => internal_err.fmt(f),
@@ -50,6 +54,12 @@ impl std::fmt::Display for Error {
                 write!(f, "not well formed data : {internal_message}")
             }
             Self::InvalidBreakStop => write!(f, "break stop position is invalid"),
+            Self::RecursionLimit => {
+                write!(f, "nesting depth of data item exceeds supported maximum")
+            }
+            Self::TrailingBytes => {
+                write!(f, "extra bytes remain after a complete CBOR data item")
+            }
         }
     }
 }
