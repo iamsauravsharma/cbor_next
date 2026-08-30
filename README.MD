@@ -9,9 +9,10 @@ Library to encode and decode a Concise Binary Object Representation (CBOR)
 ## Features
 
 - Complete support for all major CBOR types (unsigned, signed, floating integers, bytes, text, array, map, tag, boolean, null, undefined and other simple value)
-- RFC 8949 compliant
-- Deterministic encoding support via `DeterministicMode`
-- Encoding/Decoding to and from CBOR binary format
+- RFC 8949 compliant, keeping the exact length form and chunking of a decoded item so it re-encodes byte for byte
+- Configurable `Encoder` and `Decoder`, with deterministic encoding, length and float normalization, nesting limits and duplicate key handling
+- CBOR sequences (RFC 8742) through the encoder and decoder
+- Diagnostic notation through `Debug` and `Display`
 
 ## Installation
 
@@ -23,25 +24,103 @@ cbor_next = "0.4.0"
 
 ## Usage
 
-Main building block of library is `DataItem` Enum which represent a different type CBOR data item
+The main building block of the library is the `DataItem` enum, which represents
+a CBOR data item of any major type.
 
-### Encoding
+### Encoding and decoding
+
 ```rust
 use cbor_next::DataItem;
+
 let value = DataItem::Unsigned(10_000_000);
-let vector_data = vec![0x1a, 0x00, 0x98, 0x96, 0x80];
-assert_eq!(value.encode(), vector_data);
+let bytes = vec![0x1a, 0x00, 0x98, 0x96, 0x80];
+
+assert_eq!(value.encode(), bytes);
+assert_eq!(DataItem::decode(&bytes).unwrap(), value);
 ```
 
-### Decoding
+### Building and reading values
+
+Each variant has exactly one structural accessor, which hands back the content
+type holding the data.
+
 ```rust
-use cbor_next::DataItem;
-let vector_data = vec![0x1a, 0x00, 0x98, 0x96, 0x80];
-let value = DataItem::Unsigned(10_000_000);
-assert_eq!(DataItem::decode(&vector_data).unwrap(), value);
+use cbor_next::{DataItem, Get as _};
+
+let item = DataItem::map([
+    ("name", DataItem::from("cbor")),
+    ("tags", DataItem::array(["fast", "small"])),
+]);
+
+assert_eq!(item["name"], DataItem::from("cbor"));
+assert_eq!(item["tags"][0], DataItem::from("fast"));
+assert_eq!(item.get("missing"), None);
+
+assert_eq!(item["name"].as_text().unwrap().to_text(), "cbor");
+assert_eq!(item["tags"].as_array().unwrap().items().len(), 2);
+assert_eq!(item.as_map().unwrap().entries().len(), 2);
 ```
 
-For other usage check out docs `Value` enum and its methods and functions
+### Configurable encoder
+
+`DataItem::encode` and `DataItem::decode` are the shortcuts for the default
+settings. Everything else — writing into an existing buffer, deterministic
+output, sequences, decoding limits — is done through an `Encoder` or a
+`Decoder`, which is where the settings live.
+
+```rust
+use cbor_next::{DataItem, DeterministicMode, Encoder, FloatMode, LengthMode};
+
+let item = DataItem::map([(2, "b"), (1, "a")]);
+
+// sort map keys and force definite lengths
+let deterministic = Encoder::new().deterministic(DeterministicMode::Core);
+assert_eq!(
+    deterministic.encode(&item),
+    DataItem::map([(1, "a"), (2, "b")]).encode()
+);
+
+// or normalize just one aspect of the output
+let definite = Encoder::new().length(LengthMode::Definite);
+let wide = Encoder::new().float(FloatMode::Double);
+```
+
+### Configurable decoder
+
+`Decoder` holds untrusted input to the profile your application expects.
+
+```rust
+use cbor_next::{DataItem, Decoder, DeterministicMode, Error};
+
+let decoder = Decoder::new()
+    .max_nesting_depth(16)
+    .allow_indefinite(false)
+    .require_deterministic(DeterministicMode::Core);
+
+assert!(decoder.decode(&[0xa2, 0x01, 0x02, 0x03, 0x04]).is_ok());
+assert_eq!(
+    decoder.decode(&[0xa2, 0x03, 0x04, 0x01, 0x02]),
+    Err(Error::NotDeterministic)
+);
+```
+
+### CBOR sequences
+
+```rust
+use cbor_next::{DataItem, Decoder, Encoder};
+
+let bytes = Encoder::new().encode_sequence(&[DataItem::from(1), DataItem::from(2)]);
+assert_eq!(bytes, [0x01, 0x02]);
+
+let items = Decoder::new().decode_sequence(&bytes).unwrap();
+assert_eq!(items, vec![DataItem::from(1), DataItem::from(2)]);
+
+let (first, rest) = Decoder::new().decode_partial(&bytes).unwrap();
+assert_eq!(first, DataItem::from(1));
+assert_eq!(rest, [0x02]);
+```
+
+For other usage check out the docs of the `DataItem` enum and its methods.
 
 [license_badge]: https://img.shields.io/github/license/iamsauravsharma/cbor_next.svg?style=for-the-badge
 [license_link]: LICENSE

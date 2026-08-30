@@ -1,3 +1,5 @@
+//! Looking items up inside arrays and maps.
+
 use crate::data_item::DataItem;
 use crate::index::private::Sealed;
 
@@ -6,77 +8,76 @@ mod private {
 
     pub trait Sealed {}
     impl Sealed for usize {}
-    impl Sealed for DataItem {}
+    impl Sealed for &'_ DataItem {}
+    impl Sealed for &'_ str {}
 }
 
-/// Trait which is used to get a data item from data item
+/// Trait which is used to get a data item out of a data item.
+///
+/// An array is indexed by position, a map by key. A key is given either as a
+/// [`DataItem`] or, for the common case of a text key, as a string slice.
 pub trait Get<Idx>
 where
     Idx: Sealed,
 {
-    /// Get a index value
+    /// Get the item stored at the index, or `None` when the index is absent or
+    /// the item is neither an array nor a map.
     ///
     /// # Example
     /// ```rust
     /// use cbor_next::{DataItem, Get};
-    /// use indexmap::IndexMap;
     ///
-    /// let array_value = DataItem::Array(vec![DataItem::Unsigned(10)].into());
-    /// let map_val = vec![(DataItem::Text("abc".into()), DataItem::Unsigned(10))];
-    /// let map_value = DataItem::from(map_val);
-    /// assert_eq!(array_value.get(0), Some(&DataItem::Unsigned(10)));
-    /// assert_eq!(array_value.get(2), None);
-    /// assert_eq!(
-    ///     map_value.get(DataItem::from("abc")),
-    ///     Some(&DataItem::Unsigned(10))
-    /// );
-    /// assert_eq!(map_value.get(DataItem::Unsigned(11)), None);
+    /// let array = DataItem::array([10]);
+    /// assert_eq!(array.get(0), Some(&DataItem::from(10)));
+    /// assert_eq!(array.get(2), None);
+    ///
+    /// let map = DataItem::map([("abc", 10)]);
+    /// assert_eq!(map.get("abc"), Some(&DataItem::from(10)));
+    /// assert_eq!(map.get(&DataItem::from("abc")), Some(&DataItem::from(10)));
+    /// assert_eq!(map.get(&DataItem::Unsigned(11)), None);
     /// ```
     fn get(&self, idx: Idx) -> Option<&Self>;
 
-    /// Get a mutable index value
+    /// Get the item stored at the index mutably.
+    ///
     /// # Example
     /// ```rust
     /// use cbor_next::{DataItem, Get};
-    /// use indexmap::IndexMap;
     ///
-    /// let mut array_value = DataItem::Array(vec![DataItem::Unsigned(10)].into());
-    /// assert_eq!(array_value.get(0), Some(&DataItem::Unsigned(10)));
-    /// *array_value.get_mut(0).unwrap() = DataItem::Unsigned(20);
-    /// assert_eq!(array_value.get(0), Some(&DataItem::Unsigned(20)));
+    /// let mut array = DataItem::array([10]);
+    /// *array.get_mut(0).unwrap() = DataItem::from(20);
+    /// assert_eq!(array.get(0), Some(&DataItem::from(20)));
     /// ```
     fn get_mut(&mut self, idx: Idx) -> Option<&mut Self>;
 }
 
 impl Get<usize> for DataItem {
     fn get(&self, idx: usize) -> Option<&Self> {
-        match self {
-            Self::Array(a) => a.array().get(idx),
-            _ => None,
-        }
+        self.as_array()?.items().get(idx)
     }
 
     fn get_mut(&mut self, idx: usize) -> Option<&mut Self> {
-        match self {
-            Self::Array(a) => a.array_mut().get_mut(idx),
-            _ => None,
-        }
+        self.as_array_mut()?.items_mut().get_mut(idx)
     }
 }
 
-impl Get<DataItem> for DataItem {
-    fn get(&self, idx: DataItem) -> Option<&Self> {
-        match self {
-            Self::Map(m) => m.map().get(&idx),
-            _ => None,
-        }
+impl Get<&DataItem> for DataItem {
+    fn get(&self, idx: &DataItem) -> Option<&Self> {
+        self.as_map()?.entries().get(idx)
     }
 
-    fn get_mut(&mut self, idx: DataItem) -> Option<&mut Self> {
-        match self {
-            Self::Map(m) => m.map_mut().get_mut(&idx),
-            _ => None,
-        }
+    fn get_mut(&mut self, idx: &DataItem) -> Option<&mut Self> {
+        self.as_map_mut()?.entries_mut().get_mut(idx)
+    }
+}
+
+impl Get<&str> for DataItem {
+    fn get(&self, idx: &str) -> Option<&Self> {
+        self.get(&DataItem::from(idx))
+    }
+
+    fn get_mut(&mut self, idx: &str) -> Option<&mut Self> {
+        self.get_mut(&DataItem::from(idx))
     }
 }
 
