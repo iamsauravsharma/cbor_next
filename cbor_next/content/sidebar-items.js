@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["ArrayContent","ByteContent","MapContent","SimpleValue","TagContent","TextContent"]};
+window.SIDEBAR_ITEMS = {"struct":["Array","ByteString","Map","Simple","Tag","TextString"]};
