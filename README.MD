@@ -19,7 +19,7 @@ Library to encode and decode a Concise Binary Object Representation (CBOR)
 Add `cbor_next` to your `Cargo.toml`
 
 ```toml
-cbor_next = "0.4.0"
+cbor_next = "0.5.0"
 ```
 
 ## Usage
