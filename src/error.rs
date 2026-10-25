@@ -63,6 +63,13 @@ pub enum Error {
         /// Maximum nesting depth which was applied.
         limit: usize,
     },
+    /// More data items were decoded than [`Decoder::max_items`] allows.
+    ///
+    /// [`Decoder::max_items`]: crate::Decoder::max_items
+    ItemLimit {
+        /// Maximum number of data items which was applied.
+        limit: usize,
+    },
     /// Bytes remain after a complete data item was decoded.
     TrailingBytes {
         /// Number of bytes left over.
@@ -117,6 +124,9 @@ impl std::fmt::Display for Error {
             }
             Self::RecursionLimit { limit } => {
                 write!(f, "nesting depth of data item exceeds maximum of {limit}")
+            }
+            Self::ItemLimit { limit } => {
+                write!(f, "number of data items exceeds maximum of {limit}")
             }
             Self::TrailingBytes { count } => {
                 write!(

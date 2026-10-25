@@ -3,8 +3,9 @@
 //! [`DataItem::decode`] uses the default settings of [`Decoder`], which accept
 //! any well formed data item that does not nest deeper than
 //! [`Decoder::DEFAULT_MAX_NESTING_DEPTH`] and does not repeat a map key. A
-//! [`Decoder`] built by hand can tighten or relax those limits, which is how
-//! untrusted input is kept to the profile an application expects.
+//! [`Decoder`] built by hand can tighten or relax those limits, cap the number
+//! of items with [`Decoder::max_items`] and require a deterministic form, which
+//! is how untrusted input is kept to the profile an application expects.
 
 use indexmap::IndexMap;
 use indexmap::map::Entry;
@@ -12,6 +13,7 @@ use indexmap::map::Entry;
 use crate::content::{Array, ByteString, Map, Simple, Tag};
 use crate::data_item::DataItem;
 use crate::deterministic::{self, DeterministicMode};
+use crate::encode::shortest_float_additional;
 use crate::error::Error;
 
 /// Byte which closes an indefinite length item.
@@ -45,6 +47,7 @@ const BREAK: u8 = 0xFF;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Decoder {
     max_nesting_depth: usize,
+    max_items: usize,
     allow_duplicate_keys: bool,
     allow_indefinite: bool,
     require_deterministic: Option<DeterministicMode>,
@@ -54,6 +57,7 @@ impl Default for Decoder {
     fn default() -> Self {
         Self {
             max_nesting_depth: Self::DEFAULT_MAX_NESTING_DEPTH,
+            max_items: usize::MAX,
             allow_duplicate_keys: false,
             allow_indefinite: true,
             require_deterministic: None,
@@ -81,6 +85,37 @@ impl Decoder {
         self
     }
 
+    /// Set how many data items may be decoded in total before decoding fails.
+    ///
+    /// Every item counts: array elements, map keys and values, tag content and
+    /// each chunk of an indefinite length string. A sequence decoded with
+    /// [`Decoder::decode_sequence`] shares one limit.
+    ///
+    /// A data item takes far more memory than the one byte which can encode it,
+    /// so a short input can otherwise ask for a very large allocation. The
+    /// limit is not set by default, so set one when decoding untrusted input.
+    ///
+    /// # Example
+    /// ```rust
+    /// use cbor_next::{DataItem, Decoder, Error};
+    ///
+    /// let decoder = Decoder::new().max_items(3);
+    /// // the array and its two elements are three items
+    /// assert_eq!(
+    ///     decoder.decode(&[0x82, 0x01, 0x02]).unwrap(),
+    ///     DataItem::from(vec![1, 2])
+    /// );
+    /// assert_eq!(
+    ///     decoder.decode(&[0x83, 0x01, 0x02, 0x03]),
+    ///     Err(Error::ItemLimit { limit: 3 })
+    /// );
+    /// ```
+    #[must_use]
+    pub fn max_items(mut self, items: usize) -> Self {
+        self.max_items = items;
+        self
+    }
+
     /// Accept a map which uses the same key more than once, keeping the value
     /// of the last occurrence.
     ///
@@ -105,7 +140,10 @@ impl Decoder {
     /// provided mode.
     ///
     /// This is the check an application needs when a value is going to be
-    /// compared, hashed or signed in its encoded form.
+    /// compared, hashed or signed in its encoded form. Besides the order of
+    /// map keys and the length form, it requires the shortest encoding of
+    /// integers, lengths, tag numbers and floating point numbers, so `18 05`
+    /// is rejected where `05` is accepted.
     ///
     /// # Example
     /// ```rust
@@ -144,7 +182,7 @@ impl Decoder {
     /// If the leading bytes are not a well formed data item or if they break
     /// one of the limits of the decoder
     pub fn decode_partial<'a>(&self, bytes: &'a [u8]) -> Result<(DataItem, &'a [u8]), Error> {
-        let mut reader = Reader::new(bytes);
+        let mut reader = Reader::new(bytes, self.max_items);
         let item = self.read_item(&mut reader, self.max_nesting_depth)?;
         self.check_deterministic(&item)?;
         Ok((item, reader.rest()))
@@ -157,7 +195,7 @@ impl Decoder {
     /// If any item of the sequence is not a well formed data item or if it
     /// breaks one of the limits of the decoder
     pub fn decode_sequence(&self, bytes: &[u8]) -> Result<Vec<DataItem>, Error> {
-        let mut reader = Reader::new(bytes);
+        let mut reader = Reader::new(bytes, self.max_items);
         let mut items = vec![];
         while !reader.is_empty() {
             let item = self.read_item(&mut reader, self.max_nesting_depth)?;
@@ -181,6 +219,7 @@ impl Decoder {
         reader: &mut Reader<'_>,
         remaining_depth: usize,
     ) -> Result<DataItem, Error> {
+        reader.count_item()?;
         let Some(next_depth) = remaining_depth.checked_sub(1) else {
             return Err(Error::RecursionLimit {
                 limit: self.max_nesting_depth,
@@ -191,14 +230,14 @@ impl Decoder {
         let additional = head & 0b0001_1111;
         match major_type {
             0 => {
-                Ok(DataItem::Unsigned(read_argument(
-                    major_type, additional, reader,
-                )?))
+                Ok(DataItem::Unsigned(
+                    self.read_argument(major_type, additional, reader)?,
+                ))
             }
             1 => {
-                Ok(DataItem::Signed(read_argument(
-                    major_type, additional, reader,
-                )?))
+                Ok(DataItem::Signed(
+                    self.read_argument(major_type, additional, reader)?,
+                ))
             }
             2 => {
                 Ok(DataItem::Byte(
@@ -212,11 +251,11 @@ impl Decoder {
             4 => self.read_array(additional, reader, next_depth),
             5 => self.read_map(additional, reader, next_depth),
             6 => {
-                let number = read_argument(major_type, additional, reader)?;
+                let number = self.read_argument(major_type, additional, reader)?;
                 let content = self.read_item(reader, next_depth)?;
                 Ok(DataItem::Tag(Tag::new(number, content)))
             }
-            7 => read_simple_or_float(additional, reader),
+            7 => self.read_simple_or_float(additional, reader),
             _ => unreachable!("major type can only be between 0 to 7"),
         }
     }
@@ -243,7 +282,10 @@ impl Decoder {
                         found: chunk_major_type,
                     });
                 }
-                let chunk_length = read_argument(chunk_major_type, head & 0b0001_1111, reader)?;
+                // each chunk is kept in memory, so it counts as an item
+                reader.count_item()?;
+                let chunk_length =
+                    self.read_argument(chunk_major_type, head & 0b0001_1111, reader)?;
                 chunks.push(reader.read_slice(chunk_length)?.to_vec());
             }
             return Ok(ByteString::from_chunks(chunks));
@@ -353,64 +395,95 @@ impl Decoder {
             }
             return Ok(None);
         }
-        read_argument(major_type, additional, reader).map(Some)
+        self.read_argument(major_type, additional, reader).map(Some)
     }
-}
 
-/// Read the argument of a head, which is either encoded in the additional
-/// information itself or in the bytes which follow it.
-fn read_argument(major_type: u8, additional: u8, reader: &mut Reader<'_>) -> Result<u64, Error> {
-    match additional {
-        0..=23 => Ok(u64::from(additional)),
-        24 => Ok(u64::from(reader.read_u8()?)),
-        25 => Ok(u64::from(u16::from_be_bytes(reader.read_array()?))),
-        26 => Ok(u64::from(u32::from_be_bytes(reader.read_array()?))),
-        27 => Ok(u64::from_be_bytes(reader.read_array()?)),
-        _ => {
-            Err(Error::InvalidAdditionalInfo {
-                major_type,
-                additional,
-            })
-        }
-    }
-}
-
-fn read_simple_or_float(additional: u8, reader: &mut Reader<'_>) -> Result<DataItem, Error> {
-    match additional {
-        0..=19 => Ok(DataItem::GenericSimple(Simple::try_from(additional)?)),
-        20 => Ok(DataItem::Boolean(false)),
-        21 => Ok(DataItem::Boolean(true)),
-        22 => Ok(DataItem::Null),
-        23 => Ok(DataItem::Undefined),
-        24 => {
-            let value = reader.read_u8()?;
-            if value < 32 {
-                Err(Error::InvalidSimpleValue(value))
-            } else {
-                Ok(DataItem::GenericSimple(Simple::try_from(value)?))
+    /// Read the argument of a head.
+    ///
+    /// With a deterministic form required, a wider than needed form such as
+    /// `18 05` for `5` is rejected.
+    fn read_argument(
+        &self,
+        major_type: u8,
+        additional: u8,
+        reader: &mut Reader<'_>,
+    ) -> Result<u64, Error> {
+        let argument = match additional {
+            0..=23 => u64::from(additional),
+            24 => u64::from(reader.read_u8()?),
+            25 => u64::from(u16::from_be_bytes(reader.read_array()?)),
+            26 => u64::from(u32::from_be_bytes(reader.read_array()?)),
+            27 => u64::from_be_bytes(reader.read_array()?),
+            _ => {
+                return Err(Error::InvalidAdditionalInfo {
+                    major_type,
+                    additional,
+                });
+            }
+        };
+        if self.require_deterministic.is_some() {
+            let shortest = match additional {
+                24 => argument > 23,
+                25 => argument > u64::from(u8::MAX),
+                26 => argument > u64::from(u16::MAX),
+                27 => argument > u64::from(u32::MAX),
+                _ => true,
+            };
+            if !shortest {
+                return Err(Error::NotDeterministic);
             }
         }
-        25 => {
-            let bits = reader.read_array::<2>()?;
-            Ok(DataItem::Floating(f64::from(half::f16::from_be_bytes(
-                bits,
-            ))))
+        Ok(argument)
+    }
+
+    fn read_simple_or_float(
+        &self,
+        additional: u8,
+        reader: &mut Reader<'_>,
+    ) -> Result<DataItem, Error> {
+        match additional {
+            0..=19 => Ok(DataItem::GenericSimple(Simple::try_from(additional)?)),
+            20 => Ok(DataItem::Boolean(false)),
+            21 => Ok(DataItem::Boolean(true)),
+            22 => Ok(DataItem::Null),
+            23 => Ok(DataItem::Undefined),
+            24 => {
+                let value = reader.read_u8()?;
+                if value < 32 {
+                    Err(Error::InvalidSimpleValue(value))
+                } else {
+                    Ok(DataItem::GenericSimple(Simple::try_from(value)?))
+                }
+            }
+            25 => {
+                let bits = reader.read_array::<2>()?;
+                self.float_item(f64::from(half::f16::from_be_bytes(bits)), additional)
+            }
+            26 => {
+                let bits = reader.read_array::<4>()?;
+                self.float_item(f64::from(f32::from_be_bytes(bits)), additional)
+            }
+            27 => {
+                let bits = reader.read_array::<8>()?;
+                self.float_item(f64::from_be_bytes(bits), additional)
+            }
+            28..=30 => {
+                Err(Error::InvalidAdditionalInfo {
+                    major_type: 7,
+                    additional,
+                })
+            }
+            _ => Err(Error::UnexpectedBreak),
         }
-        26 => {
-            let bits = reader.read_array::<4>()?;
-            Ok(DataItem::Floating(f64::from(f32::from_be_bytes(bits))))
+    }
+
+    /// Build a float item. With a deterministic form required, a width that
+    /// is not the shortest is rejected.
+    fn float_item(&self, number: f64, additional: u8) -> Result<DataItem, Error> {
+        if self.require_deterministic.is_some() && shortest_float_additional(number) != additional {
+            return Err(Error::NotDeterministic);
         }
-        27 => {
-            let bits = reader.read_array::<8>()?;
-            Ok(DataItem::Floating(f64::from_be_bytes(bits)))
-        }
-        28..=30 => {
-            Err(Error::InvalidAdditionalInfo {
-                major_type: 7,
-                additional,
-            })
-        }
-        _ => Err(Error::UnexpectedBreak),
+        Ok(DataItem::Floating(number))
     }
 }
 
@@ -434,11 +507,29 @@ fn bounded_capacity(count: u64, reader: &Reader<'_>) -> usize {
 struct Reader<'a> {
     bytes: &'a [u8],
     position: usize,
+    items: usize,
+    max_items: usize,
 }
 
 impl<'a> Reader<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, position: 0 }
+    fn new(bytes: &'a [u8], max_items: usize) -> Self {
+        Self {
+            bytes,
+            position: 0,
+            items: 0,
+            max_items,
+        }
+    }
+
+    /// Count one more data item, failing once the limit would be passed.
+    fn count_item(&mut self) -> Result<(), Error> {
+        if self.items >= self.max_items {
+            return Err(Error::ItemLimit {
+                limit: self.max_items,
+            });
+        }
+        self.items += 1;
+        Ok(())
     }
 
     fn remaining(&self) -> usize {

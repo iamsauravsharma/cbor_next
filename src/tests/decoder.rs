@@ -77,6 +77,170 @@ fn deterministic_form_can_be_required() {
 }
 
 #[test]
+fn deterministic_form_requires_shortest_encoding() {
+    let decoder = Decoder::new().require_deterministic(DeterministicMode::Core);
+    // heads written wider than they need to be, for every major type with an
+    // argument
+    for hex_cbor in [
+        "1805",               // unsigned integer 5 as one byte
+        "190005",             // 5 as two bytes
+        "1a00000005",         // 5 as four bytes
+        "1b0000000000000005", // 5 as eight bytes
+        "190018",             // 24 as two bytes
+        "1900ff",             // 255 as two bytes
+        "1a0000ffff",         // 65535 as four bytes
+        "1b00000000ffffffff", // 4294967295 as eight bytes
+        "3805",               // negative integer
+        "5801aa",             // byte string length
+        "780161",             // text string length
+        "980100",             // array length
+        "b8010000",           // map length
+        "d8010a",             // tag number
+        "8218010a",           // a wide head nested inside an array
+    ] {
+        assert_eq!(
+            decoder.decode(&hex_bytes(hex_cbor)),
+            Err(Error::NotDeterministic),
+            "{hex_cbor}"
+        );
+        // the default decoder keeps accepting them, only the requirement
+        // rejects them
+        assert!(DataItem::decode(&hex_bytes(hex_cbor)).is_ok(), "{hex_cbor}");
+    }
+    // the shortest form of the same kinds of values is accepted
+    for hex_cbor in [
+        "05",
+        "1818",
+        "18ff",
+        "190100",
+        "19ffff",
+        "1a00010000",
+        "1affffffff",
+        "1b0000000100000000",
+        "8101",
+    ] {
+        assert!(decoder.decode(&hex_bytes(hex_cbor)).is_ok(), "{hex_cbor}");
+    }
+    // a float which fits a narrower width has to use it
+    assert_eq!(
+        decoder.decode(&hex_bytes("fa3fc00000")),
+        Err(Error::NotDeterministic),
+        "1.5 as a single"
+    );
+    assert_eq!(
+        decoder.decode(&hex_bytes("fb3ff8000000000000")),
+        Err(Error::NotDeterministic),
+        "1.5 as a double"
+    );
+    assert!(
+        decoder.decode(&hex_bytes("f93e00")).is_ok(),
+        "1.5 as a half"
+    );
+    assert!(
+        decoder.decode(&hex_bytes("fa47c35000")).is_ok(),
+        "100000.0 as a single"
+    );
+    assert!(
+        decoder.decode(&hex_bytes("fb3ff199999999999a")).is_ok(),
+        "1.1 as a double"
+    );
+}
+
+#[test]
+fn nan_equals_itself_and_repeated_nan_key_is_a_duplicate() {
+    let nan = DataItem::decode(&hex_bytes("f97e00")).unwrap();
+    assert_eq!(nan, nan.clone());
+    // a different payload is a different value
+    assert_ne!(nan, DataItem::decode(&hex_bytes("f97e01")).unwrap());
+    // +0.0 and -0.0 keep comparing equal
+    assert_eq!(DataItem::from(0.0), DataItem::from(-0.0));
+    // a map holding a NaN key equals its own copy
+    let map = DataItem::decode(&hex_bytes("a1f97e0001")).unwrap();
+    assert_eq!(map, map.clone());
+    // the same NaN used for two keys is a repeated key
+    assert!(matches!(
+        DataItem::decode(&hex_bytes("a2f97e0001f97e0002")),
+        Err(Error::DuplicateMapKey(_))
+    ));
+}
+
+#[test]
+fn item_count_can_be_limited() {
+    let decoder = Decoder::new().max_items(3);
+    // the array and its two elements are three items
+    assert!(decoder.decode(&hex_bytes("820102")).is_ok());
+    assert_eq!(
+        decoder.decode(&hex_bytes("83010203")),
+        Err(Error::ItemLimit { limit: 3 })
+    );
+    // a map counts its keys and its values, a tag counts its content
+    assert!(decoder.decode(&hex_bytes("a10102")).is_ok());
+    assert_eq!(
+        decoder.decode(&hex_bytes("a201020304")),
+        Err(Error::ItemLimit { limit: 3 })
+    );
+    assert!(decoder.decode(&hex_bytes("c101")).is_ok());
+    assert_eq!(
+        decoder.decode(&hex_bytes("81818101")),
+        Err(Error::ItemLimit { limit: 3 })
+    );
+    // indefinite lengths count their items too
+    assert_eq!(
+        decoder.decode(&hex_bytes("9f01020304ff")),
+        Err(Error::ItemLimit { limit: 3 })
+    );
+    // every chunk of an indefinite length string counts too, so a string made
+    // of many chunks cannot get around the limit
+    assert!(decoder.decode(&hex_bytes("5f4101ff")).is_ok());
+    assert!(decoder.decode(&hex_bytes("5f41014102ff")).is_ok());
+    assert_eq!(
+        decoder.decode(&hex_bytes("5f410141024103ff")),
+        Err(Error::ItemLimit { limit: 3 })
+    );
+    assert_eq!(
+        decoder.decode(&hex_bytes("7f616161626163ff")),
+        Err(Error::ItemLimit { limit: 3 })
+    );
+    // the string itself is one item, however many empty chunks follow
+    let mut empty_chunks = vec![0x5f];
+    empty_chunks.extend(std::iter::repeat_n(0x40, 1000));
+    empty_chunks.push(0xff);
+    assert_eq!(
+        Decoder::new().max_items(1).decode(&empty_chunks),
+        Err(Error::ItemLimit { limit: 1 })
+    );
+    assert!(
+        Decoder::new()
+            .max_items(1)
+            .decode(&hex_bytes("5fff"))
+            .is_ok()
+    );
+    let mut empty_text_chunks = vec![0x7f];
+    empty_text_chunks.extend(std::iter::repeat_n(0x60, 1000));
+    empty_text_chunks.push(0xff);
+    assert_eq!(
+        Decoder::new().max_items(1).decode(&empty_text_chunks),
+        Err(Error::ItemLimit { limit: 1 })
+    );
+    // one limit is shared by a whole sequence
+    assert!(decoder.decode_sequence(&hex_bytes("010203")).is_ok());
+    assert_eq!(
+        decoder.decode_sequence(&hex_bytes("01020304")),
+        Err(Error::ItemLimit { limit: 3 })
+    );
+    // a head which announces far more items than the limit fails once the
+    // limit is passed
+    let mut many = hex_bytes("9a00ffffff");
+    many.extend([0; 20]);
+    assert_eq!(
+        Decoder::new().max_items(10).decode(&many),
+        Err(Error::ItemLimit { limit: 10 })
+    );
+    // nothing is limited unless a limit is set
+    assert!(DataItem::decode(&hex_bytes("850102030405")).is_ok());
+}
+
+#[test]
 fn partial_and_sequence_decoding() {
     let bytes = hex_bytes("0102820304");
     let (first, rest) = Decoder::new().decode_partial(&bytes).unwrap();

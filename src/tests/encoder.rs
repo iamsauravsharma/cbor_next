@@ -103,3 +103,52 @@ fn encode_into_reuses_a_buffer() {
     assert_eq!(sequence, hex_bytes("0102"));
     assert_eq!(encoder.encode_sequence(&items), sequence);
 }
+
+#[test]
+fn shortest_float_width_matches_what_is_written() {
+    use crate::encode::shortest_float_additional;
+
+    let mut numbers = vec![
+        0.0,
+        -0.0,
+        1.5,
+        -1.5,
+        65504.0,
+        65536.0,
+        100_000.0,
+        1.1,
+        1e10,
+        f64::MAX,
+        f64::MIN_POSITIVE,
+        5.960_464_477_539_063e-8,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    ];
+    // NaNs: sign and payload must survive
+    for bits in [
+        0x7ff8_0000_0000_0000_u64, // f16
+        0xfff8_0000_0000_0000,     // negative, f16
+        0x7ff8_0000_2000_0000,     // f32
+        0xfff8_0000_2000_0000,     // negative, f32
+        0x7ff8_0000_0000_0001,     // f64
+        0xfff8_0000_0000_0001,     // negative, f64
+    ] {
+        numbers.push(f64::from_bits(bits));
+    }
+    for number in numbers {
+        let item = DataItem::Floating(number);
+        let encoded = item.encode();
+        assert_eq!(
+            shortest_float_additional(number),
+            encoded[0] & 0b0001_1111,
+            "{number:?}"
+        );
+        // round trip keeps every bit
+        let decoded = DataItem::decode(&encoded).unwrap();
+        assert_eq!(
+            decoded.as_floating().map(f64::to_bits),
+            Some(number.to_bits()),
+            "{number:?}"
+        );
+    }
+}

@@ -21,7 +21,7 @@ mod fmt;
 /// let encoded = item.encode();
 /// assert_eq!(DataItem::decode(&encoded).unwrap(), item);
 /// ```
-#[derive(PartialEq, Clone)]
+#[derive(Clone)]
 #[non_exhaustive]
 pub enum DataItem {
     /// Unsigned integer represented by `CBOR` major type 0.
@@ -87,6 +87,30 @@ pub enum DataItem {
     /// values have a numerical representation as defined in the `CBOR`
     /// specification.
     GenericSimple(Simple),
+}
+
+impl PartialEq for DataItem {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Unsigned(first), Self::Unsigned(second))
+            | (Self::Signed(first), Self::Signed(second)) => first == second,
+            (Self::Byte(first), Self::Byte(second)) => first == second,
+            (Self::Text(first), Self::Text(second)) => first == second,
+            (Self::Array(first), Self::Array(second)) => first == second,
+            (Self::Map(first), Self::Map(second)) => first == second,
+            (Self::Tag(first), Self::Tag(second)) => first == second,
+            (Self::Boolean(first), Self::Boolean(second)) => first == second,
+            (Self::Null, Self::Null) | (Self::Undefined, Self::Undefined) => true,
+            (Self::Floating(first), Self::Floating(second)) => {
+                // a NaN is equal to a NaN of the same bits, so that an item
+                // equals itself and a map cannot hold the same NaN key twice
+                first == second
+                    || (first.is_nan() && second.is_nan() && first.to_bits() == second.to_bits())
+            }
+            (Self::GenericSimple(first), Self::GenericSimple(second)) => first == second,
+            _ => false,
+        }
+    }
 }
 
 impl Eq for DataItem {}

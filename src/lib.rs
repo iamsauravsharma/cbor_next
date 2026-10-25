@@ -35,6 +35,7 @@
 //!
 //! let decoder = Decoder::new()
 //!     .max_nesting_depth(16)
+//!     .max_items(1_000)
 //!     .require_deterministic(DeterministicMode::Core);
 //! assert_eq!(
 //!     decoder.decode(&encoded).unwrap(),
