@@ -3,7 +3,6 @@ name = "cbor_next"
 version = "0.5.0"
 edition = "2024"
 authors = ["Saurav Sharma <appdroiddeveloper@gmail.com>"]
-homepage = "https://github.com/iamsauravsharma/cbor_next"
 repository = "https://github.com/iamsauravsharma/cbor_next"
 description = "CBOR encoder and decoder"
 license = "MIT"

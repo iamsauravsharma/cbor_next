@@ -9,8 +9,8 @@ Library to encode and decode a Concise Binary Object Representation (CBOR)
 ## Features
 
 - Complete support for all major CBOR types (unsigned, signed, floating integers, bytes, text, array, map, tag, boolean, null, undefined and other simple value)
-- RFC 8949 compliant, keeping the exact length form and chunking of a decoded item so it re-encodes byte for byte
-- Configurable `Encoder` and `Decoder`, with deterministic encoding, length and float normalization, nesting limits and duplicate key handling
+- RFC 8949 compliant, keeping the definite or indefinite length form and the chunking of a decoded string, array or map so it re-encodes the same way (numbers are always written in their shortest form)
+- Configurable `Encoder` and `Decoder`, with deterministic encoding, length and float normalization, nesting and item count limits, duplicate key handling and strict shortest-form checking of deterministic input
 - CBOR sequences (RFC 8742) through the encoder and decoder
 - Diagnostic notation through `Debug` and `Display`
 
@@ -94,6 +94,7 @@ use cbor_next::{DataItem, Decoder, DeterministicMode, Error};
 
 let decoder = Decoder::new()
     .max_nesting_depth(16)
+    .max_items(10_000)
     .allow_indefinite(false)
     .require_deterministic(DeterministicMode::Core);
 
@@ -102,7 +103,13 @@ assert_eq!(
     decoder.decode(&[0xa2, 0x03, 0x04, 0x01, 0x02]),
     Err(Error::NotDeterministic)
 );
+// the shortest form is required too: `18 05` is rejected where `05` is accepted
+assert_eq!(decoder.decode(&[0x18, 0x05]), Err(Error::NotDeterministic));
+assert!(decoder.decode(&[0x05]).is_ok());
 ```
+
+A data item takes far more memory than the one byte that can encode it, so set
+`max_items` when decoding untrusted input.
 
 ### CBOR sequences
 

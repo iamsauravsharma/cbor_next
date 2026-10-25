@@ -1,9 +1,10 @@
 //! Turning data items into `CBOR` bytes.
 //!
 //! [`DataItem::encode`] uses the default settings of [`Encoder`], which keep
-//! every item exactly as it is held. An [`Encoder`] built by hand can instead
-//! normalize what it writes, for example to emit the deterministic form of a
-//! value without first rewriting the value itself.
+//! every item as it is held, writing numbers in their shortest form. An
+//! [`Encoder`] built by hand can instead normalize what it writes, for example
+//! to emit the deterministic form of a value without first rewriting the value
+//! itself.
 
 use crate::data_item::DataItem;
 use crate::deterministic::DeterministicMode;
@@ -14,7 +15,11 @@ use crate::deterministic::DeterministicMode;
 pub enum LengthMode {
     /// Write each item with the length form it carries.
     ///
-    /// A decoded item therefore encodes back to the exact bytes it came from.
+    /// A decoded string, array or map therefore keeps the definite or the
+    /// indefinite form, and the chunks, it was read with. The width of heads
+    /// and floating point numbers is not remembered: integers, lengths, tag
+    /// numbers and floats are always written in their shortest form, so input
+    /// written wider, such as `18 05` for `5`, encodes back to `05`.
     #[default]
     Preserve,
     /// Write every item with a definite length.
@@ -301,66 +306,87 @@ fn write_head(buffer: &mut Vec<u8>, major_type: u8, argument: u64) {
     }
 }
 
-/// Write a floating point number in the shortest width which preserves it.
-fn write_float(buffer: &mut Vec<u8>, major_type: u8, number: f64) {
-    let shifted_major_type = major_type << 5;
+/// Mantissa bits a NaN loses when narrowed to f16
+const F16_DISCARDED_MANTISSA: u64 = (1 << 42) - 1;
+
+/// Mantissa bits a NaN loses when narrowed to f32
+const F32_DISCARDED_MANTISSA: u64 = (1 << 29) - 1;
+
+/// Shortest float width that keeps the value: 25 for f16, 26 for f32, 27 for
+/// f64.
+///
+/// A NaN is narrowed only if its sign and payload are kept.
+#[expect(
+    clippy::float_cmp,
+    reason = "we want to compare without margin or error"
+)]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "we only want to check truncation data loss"
+)]
+pub(crate) fn shortest_float_additional(number: f64) -> u8 {
     if number.is_nan() {
-        write_nan(buffer, shifted_major_type, number);
-        return;
-    }
-    let f16_number = half::f16::from_f64(number);
-    #[expect(
-        clippy::float_cmp,
-        reason = "we want to compare without margin or error"
-    )]
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "we only want to check truncation data loss"
-    )]
-    if f16_number.to_f64() == number {
-        buffer.push(shifted_major_type | 0x19); // 25
-        buffer.extend_from_slice(&f16_number.to_be_bytes());
+        let bits = number.to_bits();
+        if bits & F16_DISCARDED_MANTISSA == 0 {
+            0x19 // 25
+        } else if bits & F32_DISCARDED_MANTISSA == 0 {
+            0x1A // 26
+        } else {
+            0x1B // 27
+        }
+    } else if half::f16::from_f64(number).to_f64() == number {
+        0x19 // 25
     } else if f64::from(number as f32) == number {
-        buffer.push(shifted_major_type | 0x1A); // 26
-        buffer.extend_from_slice(&(number as f32).to_be_bytes());
+        0x1A // 26
     } else {
-        buffer.push(shifted_major_type | 0x1B); // 27
-        buffer.extend_from_slice(&number.to_be_bytes());
+        0x1B // 27
     }
 }
 
-/// Write a NaN in the shortest floating point width which preserves its sign
-/// and payload, as required by RFC 8949 preferred serialization.
-fn write_nan(buffer: &mut Vec<u8>, shifted_major_type: u8, number: f64) {
-    /// Low mantissa bits of a f64 which are discarded when narrowing to f16
-    const F16_DISCARDED_MANTISSA: u64 = (1 << 42) - 1;
-    /// Low mantissa bits of a f64 which are discarded when narrowing to f32
-    const F32_DISCARDED_MANTISSA: u64 = (1 << 29) - 1;
-    let bits = number.to_bits();
-    if bits & F16_DISCARDED_MANTISSA == 0 {
-        let sign = (bits >> 48) & 0x8000;
-        let exponent = 0x7C00;
-        let mantissa = (bits >> 42) & 0x03FF;
-        let f16_bits = sign | exponent | mantissa;
-        buffer.push(shifted_major_type | 0x19); // 25
-        buffer.extend_from_slice(
-            &u16::try_from(f16_bits)
-                .expect("value is masked to 16 bits")
-                .to_be_bytes(),
-        );
-    } else if bits & F32_DISCARDED_MANTISSA == 0 {
-        let sign = (bits >> 32) & 0x8000_0000;
-        let exponent = 0x7F80_0000;
-        let mantissa = (bits >> 29) & 0x007F_FFFF;
-        let f32_bits = sign | exponent | mantissa;
-        buffer.push(shifted_major_type | 0x1A); // 26
-        buffer.extend_from_slice(
-            &u32::try_from(f32_bits)
-                .expect("value is masked to 32 bits")
-                .to_be_bytes(),
-        );
-    } else {
-        buffer.push(shifted_major_type | 0x1B); // 27
-        buffer.extend_from_slice(&bits.to_be_bytes());
+/// Write a float in its shortest width.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the width was chosen so that no data is lost"
+)]
+fn write_float(buffer: &mut Vec<u8>, major_type: u8, number: f64) {
+    let additional = shortest_float_additional(number);
+    buffer.push(major_type << 5 | additional);
+    if number.is_nan() {
+        write_nan_payload(buffer, additional, number.to_bits());
+        return;
+    }
+    match additional {
+        0x19 => buffer.extend_from_slice(&half::f16::from_f64(number).to_be_bytes()),
+        0x1A => buffer.extend_from_slice(&(number as f32).to_be_bytes()),
+        _ => buffer.extend_from_slice(&number.to_be_bytes()),
+    }
+}
+
+/// Write a NaN in the width given by its head.
+fn write_nan_payload(buffer: &mut Vec<u8>, additional: u8, bits: u64) {
+    match additional {
+        0x19 => {
+            let sign = (bits >> 48) & 0x8000;
+            let exponent = 0x7C00;
+            let mantissa = (bits >> 42) & 0x03FF;
+            let f16_bits = sign | exponent | mantissa;
+            buffer.extend_from_slice(
+                &u16::try_from(f16_bits)
+                    .expect("value is masked to 16 bits")
+                    .to_be_bytes(),
+            );
+        }
+        0x1A => {
+            let sign = (bits >> 32) & 0x8000_0000;
+            let exponent = 0x7F80_0000;
+            let mantissa = (bits >> 29) & 0x007F_FFFF;
+            let f32_bits = sign | exponent | mantissa;
+            buffer.extend_from_slice(
+                &u32::try_from(f32_bits)
+                    .expect("value is masked to 32 bits")
+                    .to_be_bytes(),
+            );
+        }
+        _ => buffer.extend_from_slice(&bits.to_be_bytes()),
     }
 }
