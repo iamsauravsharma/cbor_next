@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["DataItem","DeterministicMode","Error","FloatMode","LengthMode"],"mod":["content","data_item","decode","deterministic","encode","error","index"],"struct":["Array","ByteString","Decoder","Encoder","Map","Simple","Tag","TextString"],"trait":["Get"]};
+window.SIDEBAR_ITEMS = {"enum":["DataItem","DeterministicMode","Error","FloatMode","LengthMode"],"mod":["content","data_item","decode","deterministic","encode","error","index","serde"],"struct":["Array","ByteString","Decoder","Encoder","Map","Sequence","Simple","Tag","TextString"],"trait":["Get"]};

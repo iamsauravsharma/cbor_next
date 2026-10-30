@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Error"],"fn":["from_data_item","from_slice","to_data_item","to_vec"],"struct":["Tagged","TaggedWith","Undefined"]};

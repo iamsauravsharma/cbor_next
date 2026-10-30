@@ -1,2 +1,2 @@
-createSrcSidebar('[["cbor_next",["",[["content",[],["array.rs","byte.rs","map.rs","mod.rs","simple.rs","tag.rs","text.rs"]],["data_item",[],["api.rs","convert.rs","fmt.rs","mod.rs"]]],["decode.rs","deterministic.rs","encode.rs","error.rs","index.rs","lib.rs"]]]]');
-//{"start":19,"fragment_lengths":[242]}
+createSrcSidebar('[["cbor_next",["",[["content",[],["array.rs","byte.rs","map.rs","mod.rs","simple.rs","tag.rs","text.rs"]],["data_item",[],["api.rs","convert.rs","fmt.rs","mod.rs"]],["serde",[],["de.rs","error.rs","item.rs","mod.rs","ser.rs","wrapper.rs"]]],["decode.rs","deterministic.rs","encode.rs","error.rs","index.rs","lib.rs"]]]]');
+//{"start":19,"fragment_lengths":[317]}
