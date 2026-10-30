@@ -262,12 +262,29 @@ fn hash_matches_equality() {
         hasher_builder.hash_one(&first_map),
         hasher_builder.hash_one(&second_map)
     );
-    let positive_zero = DataItem::from(0.0);
-    let negative_zero = DataItem::from(-0.0);
-    assert_eq!(positive_zero, negative_zero);
+    // the length form and the chunks are not part of the value
+    let definite = DataItem::from("hello");
+    let chunked = DataItem::Text(TextString::from_chunks(["he", "llo"]));
+    assert_eq!(definite, chunked);
     assert_eq!(
-        hasher_builder.hash_one(&positive_zero),
-        hasher_builder.hash_one(&negative_zero)
+        hasher_builder.hash_one(&definite),
+        hasher_builder.hash_one(&chunked)
+    );
+    let bytes = DataItem::bytes([1, 2, 3]);
+    let chunked_bytes = DataItem::Byte(ByteString::from_chunks([vec![1], vec![2, 3]]));
+    assert_eq!(bytes, chunked_bytes);
+    assert_eq!(
+        hasher_builder.hash_one(&bytes),
+        hasher_builder.hash_one(&chunked_bytes)
+    );
+    assert_eq!(DataItem::from(0.0), DataItem::from(-0.0));
+    assert_eq!(
+        hasher_builder.hash_one(DataItem::from(0.0)),
+        hasher_builder.hash_one(DataItem::from(-0.0))
+    );
+    assert_eq!(
+        hasher_builder.hash_one(DataItem::from(f64::NAN)),
+        hasher_builder.hash_one(DataItem::from(-f64::NAN))
     );
 }
 

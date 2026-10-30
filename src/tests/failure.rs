@@ -157,3 +157,95 @@ fn error_is_displayed_and_sourced() {
         "same map key \"a\" is repeated multiple times"
     );
 }
+
+/// Inputs which RFC 8949 appendix F lists as not well formed, along with a
+/// few of the same kinds, and one which section 3.2.3 calls invalid
+const NOT_WELL_FORMED: &[&str] = &[
+    // too little data
+    "18",
+    "19",
+    "1a",
+    "1b",
+    "1901",
+    "1a0102",
+    "1b01020304050607",
+    "38",
+    "58",
+    "78",
+    "98",
+    "9a01ff00",
+    "b8",
+    "d8",
+    "f8",
+    "f900",
+    "fa0000",
+    "fb000000",
+    "5f4100",
+    "7f6100",
+    "82 00",
+    "a2 00 00 00",
+    "5affffffff00",
+    "5bffffffffffffffff01",
+    "7affffffff00",
+    "7b7fffffffffffffff01",
+    "9f",
+    "9f0102",
+    "bf",
+    "bf01020102",
+    "819f",
+    "9f8000",
+    "9f9f9f9f9fffffffff",
+    "9f819f819f9fffffff",
+    // misplaced break
+    "ff",
+    "81ff",
+    "8200ff",
+    "a1ff",
+    "a100ff",
+    "bf00ff",
+    "bf000000ff",
+    "9fffff",
+    "819fffff",
+    "c0ff",
+    "5f00ff",
+    "5f5fffff",
+    "5f7fffff",
+    "7f6161c0ff",
+    // chunk which is not valid UTF-8 on its own, invalid under section 3.2.3
+    "7f61c361a9ff",
+    // reserved additional information
+    "1c",
+    "1d",
+    "1e",
+    "1f",
+    "3c",
+    "3f",
+    "5c",
+    "7e",
+    "9c",
+    "bd",
+    "dc",
+    "df",
+    "fc",
+    "fd",
+    "fe",
+    // simple values below 32 written in two bytes
+    "f800",
+    "f81f",
+];
+
+#[test]
+fn appendix_f_items_are_rejected() {
+    for hex_cbor in NOT_WELL_FORMED {
+        let bytes = hex_bytes(&hex_cbor.replace(' ', ""));
+        assert!(DataItem::decode(&bytes).is_err(), "{hex_cbor} was accepted");
+    }
+}
+
+#[test]
+fn empty_and_nested_indefinite_items_are_accepted() {
+    for hex_cbor in ["9fff", "bfff", "5fff", "7fff", "9f9fffff", "bf6161 9fffff"] {
+        let bytes = hex_bytes(&hex_cbor.replace(' ', ""));
+        assert!(DataItem::decode(&bytes).is_ok(), "{hex_cbor} was rejected");
+    }
+}

@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Formatter, Result as FmtResult};
+use std::hash::{Hash, Hasher};
 
 use crate::data_item::DataItem;
 
@@ -19,7 +20,9 @@ use crate::data_item::DataItem;
 /// assert_eq!(content.items()[2], DataItem::from(3));
 /// assert!(!content.is_indefinite());
 /// ```
-#[derive(Default, PartialEq, Eq, Clone, Hash)]
+///
+/// Arrays are equal when their items are, whatever their length form.
+#[derive(Default, Clone)]
 pub struct Array {
     is_indefinite: bool,
     items: Vec<DataItem>,
@@ -88,6 +91,20 @@ impl Array {
     #[must_use]
     pub fn into_items(self) -> Vec<DataItem> {
         self.items
+    }
+}
+
+impl PartialEq for Array {
+    fn eq(&self, other: &Self) -> bool {
+        self.items == other.items
+    }
+}
+
+impl Eq for Array {}
+
+impl Hash for Array {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.items.hash(state);
     }
 }
 

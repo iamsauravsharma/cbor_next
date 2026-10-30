@@ -37,9 +37,8 @@ impl TryFrom<u128> for DataItem {
 impl From<i64> for DataItem {
     fn from(value: i64) -> Self {
         if value.is_negative() {
-            let positive_val = -value - 1;
-            let u64_val =
-                u64::try_from(positive_val).expect("i64 positive can be converted to u64");
+            // `!value` is `-value - 1` without overflowing on `i64::MIN`
+            let u64_val = u64::try_from(!value).expect("i64 positive can be converted to u64");
             Self::Signed(u64_val)
         } else {
             let u64_val = u64::try_from(value).expect("i64 positive can be converted to u64");
@@ -55,8 +54,8 @@ impl TryFrom<i128> for DataItem {
 
     fn try_from(value: i128) -> Result<Self, Self::Error> {
         if value.is_negative() {
-            let positive_val = -value - 1;
-            Ok(Self::Signed(u64::try_from(positive_val)?))
+            // `!value` is `-value - 1` without overflowing on `i128::MIN`
+            Ok(Self::Signed(u64::try_from(!value)?))
         } else {
             Ok(Self::Unsigned(u64::try_from(value)?))
         }
@@ -75,7 +74,46 @@ impl From<f64> for DataItem {
     }
 }
 
-impl_from!(f64, f32, half::f16);
+impl From<f32> for DataItem {
+    fn from(value: f32) -> Self {
+        Self::Floating(f32_to_f64(value))
+    }
+}
+
+impl From<half::f16> for DataItem {
+    fn from(value: half::f16) -> Self {
+        Self::Floating(f16_to_f64(value))
+    }
+}
+
+/// Sign bit and exponent of an `f64` NaN
+const F64_NAN_EXPONENT: u64 = 0x7FF0_0000_0000_0000;
+
+/// Widen a half precision float, keeping the significand of a NaN.
+///
+/// A plain conversion sets the quiet bit of a signaling NaN.
+pub(crate) fn f16_to_f64(value: half::f16) -> f64 {
+    if value.is_nan() {
+        let bits = value.to_bits();
+        let sign = u64::from(bits & 0x8000) << 48;
+        let significand = u64::from(bits & 0x03FF) << 42;
+        f64::from_bits(sign | F64_NAN_EXPONENT | significand)
+    } else {
+        value.to_f64()
+    }
+}
+
+/// Widen a single precision float, keeping the significand of a NaN.
+pub(crate) fn f32_to_f64(value: f32) -> f64 {
+    if value.is_nan() {
+        let bits = value.to_bits();
+        let sign = u64::from(bits & 0x8000_0000) << 32;
+        let significand = u64::from(bits & 0x007F_FFFF) << 29;
+        f64::from_bits(sign | F64_NAN_EXPONENT | significand)
+    } else {
+        f64::from(value)
+    }
+}
 
 impl From<ByteString> for DataItem {
     fn from(value: ByteString) -> Self {

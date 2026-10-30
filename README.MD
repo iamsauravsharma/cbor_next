@@ -13,6 +13,7 @@ Library to encode and decode a Concise Binary Object Representation (CBOR)
 - Configurable `Encoder` and `Decoder`, with deterministic encoding, length and float normalization, nesting and item count limits, duplicate key handling and strict shortest-form checking of deterministic input
 - CBOR sequences (RFC 8742) through the encoder and decoder
 - Diagnostic notation through `Debug` and `Display`
+- Optional `serde` support, with wrappers for tags, `undefined` and simple values and bignums for 128 bit integers
 
 ## Installation
 
