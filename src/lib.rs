@@ -64,12 +64,17 @@ pub mod error;
 /// Module for index
 pub mod index;
 
+/// Module for converting between Rust values and data items with serde
+#[cfg(feature = "serde")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
+pub mod serde;
+
 #[doc(inline)]
 pub use content::{Array, ByteString, Map, Simple, Tag, TextString};
 #[doc(inline)]
 pub use data_item::DataItem;
 #[doc(inline)]
-pub use decode::Decoder;
+pub use decode::{Decoder, Sequence};
 #[doc(inline)]
 pub use deterministic::DeterministicMode;
 #[doc(inline)]

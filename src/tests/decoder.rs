@@ -1,3 +1,4 @@
+use crate::content::{Array, TextString};
 use crate::data_item::DataItem;
 use crate::decode::Decoder;
 use crate::deterministic::DeterministicMode;
@@ -152,8 +153,12 @@ fn nan_equals_itself_and_repeated_nan_key_is_a_duplicate() {
     assert_eq!(nan, nan.clone());
     // a different payload is a different value
     assert_ne!(nan, DataItem::decode(&hex_bytes("f97e01")).unwrap());
-    // +0.0 and -0.0 keep comparing equal
+    // RFC 8949 section 5.6.1: -0.0 is equal to 0.0
     assert_eq!(DataItem::from(0.0), DataItem::from(-0.0));
+    // NaNs are equivalent by significand, whatever their sign
+    assert_eq!(nan, DataItem::decode(&hex_bytes("f9fe00")).unwrap());
+    // a half precision significand widens to the same double significand
+    assert_eq!(nan, DataItem::decode(&hex_bytes("fa7fc00000")).unwrap());
     // a map holding a NaN key equals its own copy
     let map = DataItem::decode(&hex_bytes("a1f97e0001")).unwrap();
     assert_eq!(map, map.clone());
@@ -285,4 +290,125 @@ fn huge_declared_length_does_not_allocate() {
             missing: 18_446_744_073_709_551_614
         })
     );
+}
+
+#[test]
+fn duplicate_key_is_found_across_length_forms() {
+    // "hello" and the chunks "he" and "llo"
+    let bytes = hex_bytes("a26568656c6c6f017f626865636c6c6fff02");
+    assert!(matches!(
+        DataItem::decode(&bytes),
+        Err(Error::DuplicateMapKey(_))
+    ));
+}
+
+#[test]
+fn zero_and_negative_zero_are_duplicate_keys() {
+    assert!(matches!(
+        DataItem::decode(&hex_bytes("a2f9000001f9800002")),
+        Err(Error::DuplicateMapKey(_))
+    ));
+    // an integer, a float and a bignum of one number are distinct
+    let distinct = DataItem::decode(&hex_bytes(
+        "a300 01f90000 02c24100 03".replace(' ', "").as_str(),
+    ));
+    assert_eq!(distinct.unwrap().as_map().unwrap().entries().len(), 3);
+}
+
+#[test]
+fn length_form_does_not_change_equality() {
+    let definite = DataItem::from(vec![1, 2]);
+    let indefinite = DataItem::Array(Array::from_items([1, 2]).with_indefinite(true));
+    assert_eq!(definite, indefinite);
+    assert_eq!(
+        DataItem::from("ab"),
+        DataItem::Text(TextString::from_chunks(["a", "b"]))
+    );
+}
+
+#[test]
+fn most_negative_integers_convert() {
+    assert_eq!(
+        DataItem::from(i64::MIN).as_integer(),
+        Some(i128::from(i64::MIN))
+    );
+    assert_eq!(
+        DataItem::try_from(-(1_i128 << 64)).unwrap(),
+        DataItem::Signed(u64::MAX)
+    );
+    assert!(DataItem::try_from(i128::MIN).is_err());
+}
+
+#[test]
+fn key_equivalence_follows_the_generic_data_model() {
+    let duplicate = |hex_cbor: &str| {
+        matches!(
+            DataItem::decode(&hex_bytes(&hex_cbor.replace(' ', ""))),
+            Err(Error::DuplicateMapKey(_))
+        )
+    };
+    // strings and arrays match across length forms
+    assert!(duplicate("a2 4101 02 5f4101ff 03"));
+    // equivalence reaches into nested keys
+    assert!(duplicate("a2 81f90000 01 81f98000 02"));
+    assert!(duplicate("a2 c1f90000 01 c1f98000 02"));
+    assert!(duplicate("a2 a2 0102 0304 01 a2 0304 0102 02"));
+    assert!(duplicate("a2 8101 01 9f01ff 02"));
+    assert!(duplicate("a2 a10101 01 bf0101ff 02"));
+    // nested maps are checked too
+    assert!(duplicate("a1 01 a2 02 03 02 04"));
+    assert!(duplicate("bf 01 02 01 03 ff"));
+    // different types are distinct
+    assert!(!duplicate("a2 6161 01 4161 02"));
+    assert!(!duplicate("a2 01 02 c101 03"));
+    assert!(!duplicate("a2 02 01 e2 02"));
+}
+
+#[test]
+fn lookup_finds_a_key_whatever_its_length_form() {
+    use crate::index::Get as _;
+
+    let item = DataItem::decode(&hex_bytes("a17f626865636c6c6fff01")).unwrap();
+    assert_eq!(item.get("hello"), Some(&DataItem::from(1)));
+}
+
+#[test]
+fn nan_significand_survives_every_width() {
+    // a signaling NaN keeps its significand at every width
+    let half = DataItem::decode(&hex_bytes("f97c01")).unwrap();
+    let single = DataItem::decode(&hex_bytes("fa7f802000")).unwrap();
+    let double = DataItem::decode(&hex_bytes("fb7ff0040000000000")).unwrap();
+    assert_eq!(half, single);
+    assert_eq!(half, double);
+    // these are already at their shortest width
+    for hex_cbor in [
+        "f97c01",
+        "f97e01",
+        "f9fc01",
+        "fa7f800001",
+        "fa7fc00001",
+        "fb7ff0000000000001",
+        "fb7ff8000000000001",
+    ] {
+        let bytes = hex_bytes(hex_cbor);
+        assert_eq!(
+            DataItem::decode(&bytes).unwrap().encode(),
+            bytes,
+            "{hex_cbor}"
+        );
+    }
+}
+
+#[test]
+fn sequence_delivers_items_before_a_failure() {
+    let decoder = Decoder::new();
+    let bytes = hex_bytes("010218");
+    let items = decoder.sequence(&bytes).collect::<Vec<_>>();
+    assert_eq!(items.len(), 3);
+    assert_eq!(items[0], Ok(DataItem::from(1)));
+    assert_eq!(items[1], Ok(DataItem::from(2)));
+    assert!(items[2].is_err());
+    // an empty sequence has no items, and a break is not an item
+    assert_eq!(decoder.sequence(&[]).count(), 0);
+    assert_eq!(decoder.sequence(&[0x01, 0xff, 0x02]).count(), 2);
 }

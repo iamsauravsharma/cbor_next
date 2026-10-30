@@ -3,7 +3,7 @@ use std::hash::{DefaultHasher, Hash, Hasher as _};
 use crate::content::{Array, ByteString, Map, Simple, Tag, TextString};
 
 mod api;
-mod convert;
+pub(crate) mod convert;
 mod fmt;
 
 /// Enum representing different types of data item that can be encoded or
@@ -89,6 +89,9 @@ pub enum DataItem {
     GenericSimple(Simple),
 }
 
+/// Bits of an `f64` which hold its significand
+const NAN_SIGNIFICAND: u64 = (1 << 52) - 1;
+
 impl PartialEq for DataItem {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -102,10 +105,15 @@ impl PartialEq for DataItem {
             (Self::Boolean(first), Self::Boolean(second)) => first == second,
             (Self::Null, Self::Null) | (Self::Undefined, Self::Undefined) => true,
             (Self::Floating(first), Self::Floating(second)) => {
-                // a NaN is equal to a NaN of the same bits, so that an item
-                // equals itself and a map cannot hold the same NaN key twice
-                first == second
-                    || (first.is_nan() && second.is_nan() && first.to_bits() == second.to_bits())
+                // RFC 8949 section 5.6.1: `-0.0` equals `0.0` and NaNs are
+                // equal when their significands are
+                if first.is_nan() || second.is_nan() {
+                    first.is_nan()
+                        && second.is_nan()
+                        && first.to_bits() & NAN_SIGNIFICAND == second.to_bits() & NAN_SIGNIFICAND
+                } else {
+                    first == second
+                }
             }
             (Self::GenericSimple(first), Self::GenericSimple(second)) => first == second,
             _ => false,
@@ -124,7 +132,6 @@ impl Hash for DataItem {
             Self::Text(text) => text.hash(state),
             Self::Array(values) => values.hash(state),
             Self::Map(map_content) => {
-                map_content.is_indefinite().hash(state);
                 map_content.entries().len().hash(state);
                 // entries are compared without regard to their order, so they
                 // must be hashed with an order independent
@@ -140,9 +147,13 @@ impl Hash for DataItem {
             Self::Tag(tag_content) => tag_content.hash(state),
             Self::Boolean(val) => val.hash(state),
             Self::Floating(val) => {
-                // normalize -0.0 and 0.0 to the same representation for hashing
-                let normalized = if *val == 0.0 { 0.0 } else { *val };
-                normalized.to_be_bytes().hash(state);
+                if val.is_nan() {
+                    (val.to_bits() & NAN_SIGNIFICAND).hash(state);
+                } else {
+                    // `-0.0` and `0.0` hash alike
+                    let normalized = if *val == 0.0 { 0.0 } else { *val };
+                    normalized.to_bits().hash(state);
+                }
             }
             Self::GenericSimple(simple_number) => simple_number.hash(state),
             Self::Null | Self::Undefined => {}

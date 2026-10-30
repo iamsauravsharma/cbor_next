@@ -1,4 +1,7 @@
+use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter, Result as FmtResult, Write as _};
+use std::hash::{Hash, Hasher};
 
 /// Content of a byte string, `CBOR` major type 2.
 ///
@@ -22,7 +25,9 @@ use std::fmt::{Debug, Formatter, Result as FmtResult, Write as _};
 /// assert_eq!(indefinite.chunks().len(), 2);
 /// assert_eq!(indefinite.to_bytes(), [0x01, 0x02]);
 /// ```
-#[derive(Default, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
+///
+/// Byte strings are equal when their bytes are, whatever their chunks.
+#[derive(Default, Clone)]
 pub struct ByteString {
     is_indefinite: bool,
     chunks: Vec<Vec<u8>>,
@@ -114,6 +119,42 @@ impl ByteString {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.chunks.iter().all(Vec::is_empty)
+    }
+}
+
+impl PartialEq for ByteString {
+    fn eq(&self, other: &Self) -> bool {
+        self.chunks
+            .iter()
+            .flatten()
+            .eq(other.chunks.iter().flatten())
+    }
+}
+
+impl Eq for ByteString {}
+
+impl PartialOrd for ByteString {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ByteString {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.chunks
+            .iter()
+            .flatten()
+            .cmp(other.chunks.iter().flatten())
+    }
+}
+
+impl Hash for ByteString {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let bytes = match self.chunks.as_slice() {
+            [chunk] => Cow::Borrowed(chunk.as_slice()),
+            chunks => Cow::Owned(chunks.concat()),
+        };
+        state.write(&bytes);
     }
 }
 

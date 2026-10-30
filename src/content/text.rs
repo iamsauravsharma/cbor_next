@@ -1,4 +1,7 @@
+use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter, Result as FmtResult, Write as _};
+use std::hash::{Hash, Hasher};
 use std::string::FromUtf8Error;
 
 use crate::content::ByteString;
@@ -23,7 +26,9 @@ use crate::content::ByteString;
 /// assert!(indefinite.is_indefinite());
 /// assert_eq!(indefinite.to_text(), "hello");
 /// ```
-#[derive(Default, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
+///
+/// Text strings are equal when their text is, whatever their chunks.
+#[derive(Default, Clone)]
 pub struct TextString {
     is_indefinite: bool,
     chunks: Vec<String>,
@@ -99,6 +104,11 @@ impl TextString {
         self.chunks
     }
 
+    /// Every UTF-8 byte of the text, chunk boundaries ignored.
+    fn bytes(&self) -> impl Iterator<Item = u8> + '_ {
+        self.chunks.iter().flat_map(|chunk| chunk.bytes())
+    }
+
     /// All chunks concatenated into one string.
     #[must_use]
     pub fn to_text(&self) -> String {
@@ -115,6 +125,36 @@ impl TextString {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.chunks.iter().all(String::is_empty)
+    }
+}
+
+impl PartialEq for TextString {
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes().eq(other.bytes())
+    }
+}
+
+impl Eq for TextString {}
+
+impl PartialOrd for TextString {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TextString {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.bytes().cmp(other.bytes())
+    }
+}
+
+impl Hash for TextString {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let text = match self.chunks.as_slice() {
+            [chunk] => Cow::Borrowed(chunk.as_str()),
+            chunks => Cow::Owned(chunks.concat()),
+        };
+        state.write(text.as_bytes());
     }
 }
 

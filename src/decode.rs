@@ -12,12 +12,37 @@ use indexmap::map::Entry;
 
 use crate::content::{Array, ByteString, Map, Simple, Tag};
 use crate::data_item::DataItem;
+use crate::data_item::convert::{f16_to_f64, f32_to_f64};
 use crate::deterministic::{self, DeterministicMode};
 use crate::encode::shortest_float_additional;
 use crate::error::Error;
 
 /// Byte which closes an indefinite length item.
 const BREAK: u8 = 0xFF;
+
+/// Data items of a sequence, decoded one at a time by [`Decoder::sequence`].
+#[derive(Debug)]
+pub struct Sequence<'a> {
+    decoder: &'a Decoder,
+    reader: Reader<'a>,
+    failed: bool,
+}
+
+impl Iterator for Sequence<'_> {
+    type Item = Result<DataItem, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.failed || self.reader.is_empty() {
+            return None;
+        }
+        let item = self
+            .decoder
+            .read_item(&mut self.reader, self.decoder.max_nesting_depth)
+            .and_then(|item| self.decoder.check_deterministic(&item).map(|()| item));
+        self.failed = item.is_err();
+        Some(item)
+    }
+}
 
 /// A configurable `CBOR` decoder.
 ///
@@ -119,7 +144,9 @@ impl Decoder {
     /// Accept a map which uses the same key more than once, keeping the value
     /// of the last occurrence.
     ///
-    /// RFC 8949 calls such a map invalid, so it is rejected by default.
+    /// RFC 8949 calls such a map invalid, so it is rejected by default. Keys
+    /// are compared as in section 5.6.1: `1` and `1.0` differ, `0.0` and `-0.0`
+    /// match, and strings, arrays and maps match by content.
     #[must_use]
     pub fn allow_duplicate_keys(mut self, allow: bool) -> Self {
         self.allow_duplicate_keys = allow;
@@ -195,14 +222,34 @@ impl Decoder {
     /// If any item of the sequence is not a well formed data item or if it
     /// breaks one of the limits of the decoder
     pub fn decode_sequence(&self, bytes: &[u8]) -> Result<Vec<DataItem>, Error> {
-        let mut reader = Reader::new(bytes, self.max_items);
-        let mut items = vec![];
-        while !reader.is_empty() {
-            let item = self.read_item(&mut reader, self.max_nesting_depth)?;
-            self.check_deterministic(&item)?;
-            items.push(item);
+        self.sequence(bytes).collect()
+    }
+
+    /// Decode a sequence one data item at a time.
+    ///
+    /// Unlike [`Decoder::decode_sequence`], the items before a bad or truncated
+    /// one are still delivered. The iterator stops after the first error, as
+    /// the rest of a sequence cannot be told apart once an item is broken.
+    ///
+    /// # Example
+    /// ```rust
+    /// use cbor_next::{DataItem, Decoder};
+    ///
+    /// // the third item is cut short
+    /// let decoder = Decoder::new();
+    /// let mut items = decoder.sequence(&[0x01, 0x02, 0x18]);
+    /// assert_eq!(items.next(), Some(Ok(DataItem::from(1))));
+    /// assert_eq!(items.next(), Some(Ok(DataItem::from(2))));
+    /// assert!(matches!(items.next(), Some(Err(_))));
+    /// assert_eq!(items.next(), None);
+    /// ```
+    #[must_use]
+    pub fn sequence<'a>(&'a self, bytes: &'a [u8]) -> Sequence<'a> {
+        Sequence {
+            decoder: self,
+            reader: Reader::new(bytes, self.max_items),
+            failed: false,
         }
-        Ok(items)
     }
 
     fn check_deterministic(&self, item: &DataItem) -> Result<(), Error> {
@@ -457,11 +504,11 @@ impl Decoder {
             }
             25 => {
                 let bits = reader.read_array::<2>()?;
-                self.float_item(f64::from(half::f16::from_be_bytes(bits)), additional)
+                self.float_item(f16_to_f64(half::f16::from_be_bytes(bits)), additional)
             }
             26 => {
                 let bits = reader.read_array::<4>()?;
-                self.float_item(f64::from(f32::from_be_bytes(bits)), additional)
+                self.float_item(f32_to_f64(f32::from_be_bytes(bits)), additional)
             }
             27 => {
                 let bits = reader.read_array::<8>()?;
@@ -504,6 +551,7 @@ fn bounded_capacity(count: u64, reader: &Reader<'_>) -> usize {
 }
 
 /// Cursor over the bytes being decoded.
+#[derive(Debug)]
 struct Reader<'a> {
     bytes: &'a [u8],
     position: usize,

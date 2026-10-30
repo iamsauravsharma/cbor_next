@@ -7,6 +7,8 @@ mod encoder;
 mod failure;
 mod index;
 mod roundtrip;
+#[cfg(feature = "serde")]
+mod serde;
 
 use crate::data_item::DataItem;
 use crate::error::Error;

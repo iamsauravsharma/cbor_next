@@ -25,7 +25,10 @@ use crate::data_item::DataItem;
 ///     Some(&DataItem::from(1))
 /// );
 /// ```
-#[derive(Default, PartialEq, Eq, Clone)]
+///
+/// Maps are equal when they hold the same pairs in any order, whatever their
+/// length form.
+#[derive(Default, Clone)]
 pub struct Map {
     is_indefinite: bool,
     entries: IndexMap<DataItem, DataItem>,
@@ -103,6 +106,14 @@ impl Map {
         self.entries
     }
 }
+
+impl PartialEq for Map {
+    fn eq(&self, other: &Self) -> bool {
+        self.entries == other.entries
+    }
+}
+
+impl Eq for Map {}
 
 impl<K, V> From<IndexMap<K, V>> for Map
 where
