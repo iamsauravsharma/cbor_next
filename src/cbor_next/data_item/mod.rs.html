@@ -35,7 +35,7 @@
 <a href=#35 id=35 data-nosnippet>35</a>    /// store `0`, -10 would store `9`. The actual negative value is derived
 <a href=#36 id=36 data-nosnippet>36</a>    /// as `-(1 + value)`. Building this variant from the value it stands for
 <a href=#37 id=37 data-nosnippet>37</a>    /// is done with `DataItem::from(-10_i64)` or, for the full `CBOR` range,
-<a href=#38 id=38 data-nosnippet>38</a>    /// `DataItem::try_from(-10_i128)`.
+<a href=#38 id=38 data-nosnippet>38</a>    /// `DataItem::from(-10_i128)`, which writes a bignum past that range.
 <a href=#39 id=39 data-nosnippet>39</a>    </span>Signed(u64),
 <a href=#40 id=40 data-nosnippet>40</a>    <span class="doccomment">/// Byte string represented by `CBOR` major type 2.
 <a href=#41 id=41 data-nosnippet>41</a>    ///

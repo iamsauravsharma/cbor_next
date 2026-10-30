@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["Decoder","Sequence"]};
+window.SIDEBAR_ITEMS = {"enum":["DuplicateKeyMode"],"struct":["Decoder","Sequence"]};
