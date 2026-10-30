@@ -1,10 +1,10 @@
 use std::hash::Hash;
-use std::num::TryFromIntError;
 
 use indexmap::IndexMap;
 
 use crate::content::{Array, ByteString, Map, Simple, Tag, TextString};
 use crate::data_item::DataItem;
+use crate::tags::{NEGATIVE_BIGNUM, UNSIGNED_BIGNUM};
 
 impl From<u64> for DataItem {
     fn from(value: u64) -> Self {
@@ -26,11 +26,49 @@ macro_rules! impl_from {
 
 impl_from!(u64, u32, u16, u8);
 
-impl TryFrom<u128> for DataItem {
-    type Error = TryFromIntError;
+/// An integer which does not fit a major type 0 or 1 item, as a bignum of
+/// tag 2 or 3, RFC 8949 section 3.4.3.
+///
+/// The magnitude of a negative number is `-1 - value`, and leading zero bytes
+/// are left out as the preferred serialization asks.
+pub(crate) fn bignum(negative: bool, magnitude: u128) -> DataItem {
+    let bytes = magnitude.to_be_bytes();
+    let start = bytes
+        .iter()
+        .position(|byte| *byte != 0)
+        .unwrap_or(bytes.len());
+    let number = if negative {
+        NEGATIVE_BIGNUM
+    } else {
+        UNSIGNED_BIGNUM
+    };
+    DataItem::tag(number, DataItem::bytes(&bytes[start..]))
+}
 
-    fn try_from(value: u128) -> Result<Self, Self::Error> {
-        Ok(u64::try_from(value)?.into())
+/// The magnitude a bignum holds, or `None` when it is wider than 128 bits.
+///
+/// Leading zero bytes are accepted, as RFC 8949 section 3.4.3 requires of a
+/// decoder.
+pub(crate) fn bignum_magnitude(bytes: &[u8]) -> Option<u128> {
+    let start = bytes
+        .iter()
+        .position(|byte| *byte != 0)
+        .unwrap_or(bytes.len());
+    let digits = &bytes[start..];
+    if digits.len() > size_of::<u128>() {
+        return None;
+    }
+    Some(
+        digits
+            .iter()
+            .fold(0, |magnitude, byte| magnitude << 8 | u128::from(*byte)),
+    )
+}
+
+/// A number which fits a major type 0 item is one, any other is a bignum.
+impl From<u128> for DataItem {
+    fn from(value: u128) -> Self {
+        u64::try_from(value).map_or_else(|_| bignum(false, value), Self::Unsigned)
     }
 }
 
@@ -49,15 +87,22 @@ impl From<i64> for DataItem {
 
 impl_from!(i64, i32, i16, i8);
 
-impl TryFrom<i128> for DataItem {
-    type Error = TryFromIntError;
-
-    fn try_from(value: i128) -> Result<Self, Self::Error> {
-        if value.is_negative() {
+/// A number which fits a major type 0 or 1 item is one, any other is a
+/// bignum.
+impl From<i128> for DataItem {
+    fn from(value: i128) -> Self {
+        if let Ok(unsigned) = u64::try_from(value) {
+            Self::Unsigned(unsigned)
+        } else if let Ok(negative) = u64::try_from(!value) {
             // `!value` is `-value - 1` without overflowing on `i128::MIN`
-            Ok(Self::Signed(u64::try_from(!value)?))
+            Self::Signed(negative)
+        } else if value.is_negative() {
+            bignum(
+                true,
+                u128::try_from(!value).expect("`!value` is not negative"),
+            )
         } else {
-            Ok(Self::Unsigned(u64::try_from(value)?))
+            bignum(false, u128::try_from(value).expect("value is not negative"))
         }
     }
 }

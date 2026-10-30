@@ -51,6 +51,8 @@ mod de;
 mod error;
 mod item;
 mod ser;
+/// Module for the tags registered by RFC 8949 and RFC 8742
+pub mod tags;
 mod wrapper;
 
 pub use de::{from_data_item, from_slice};

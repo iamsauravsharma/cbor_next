@@ -8,7 +8,8 @@ use indexmap::map::Iter as MapIter;
 
 use super::error::{Error, unsupported};
 use super::wrapper::{DATA_ITEM_NAME, SIMPLE_NAME, TAG_NAME, UNDEFINED_NAME};
-use crate::data_item::DataItem;
+use crate::data_item::{DataItem, convert};
+use crate::tags::{NEGATIVE_BIGNUM, UNSIGNED_BIGNUM};
 
 /// Turn a data item into a value.
 ///
@@ -65,29 +66,17 @@ pub(super) const UNDEFINED_VARIANT: u32 = 1;
 pub(super) const SIMPLE_VARIANT: u32 = 2;
 
 /// The magnitude a bignum holds, RFC 8949 section 3.4.3.
-///
-/// Leading zero bytes are allowed, as the section requires of a decoder.
 fn bignum_magnitude(number: u64, content: &DataItem) -> Result<u128, Error> {
     let DataItem::Byte(bytes) = content else {
         return Err(unsupported(format_args!(
             "tag {number} with content {content}, which is not a byte string"
         )));
     };
-    let bytes = bytes.to_bytes();
-    let start = bytes
-        .iter()
-        .position(|byte| *byte != 0)
-        .unwrap_or(bytes.len());
-    let digits = &bytes[start..];
-    if digits.len() > size_of::<u128>() {
-        return Err(unsupported(format_args!(
-            "bignum of {} bytes, which is wider than 128 bits",
-            digits.len()
-        )));
-    }
-    Ok(digits
-        .iter()
-        .fold(0, |magnitude, byte| magnitude << 8 | u128::from(*byte)))
+    convert::bignum_magnitude(&bytes.to_bytes()).ok_or_else(|| {
+        unsupported(format_args!(
+            "bignum {content}, which is wider than 128 bits"
+        ))
+    })
 }
 
 impl<'de> de::Deserializer<'de> for &'de DataItem {
@@ -155,15 +144,15 @@ impl<'de> de::Deserializer<'de> for &'de DataItem {
             }
             DataItem::Tag(tag) => {
                 match tag.number() {
-                    2 => {
-                        let magnitude = bignum_magnitude(2, tag.content())?;
+                    UNSIGNED_BIGNUM => {
+                        let magnitude = bignum_magnitude(UNSIGNED_BIGNUM, tag.content())?;
                         match u64::try_from(magnitude) {
                             Ok(small) => visitor.visit_u64(small),
                             Err(_) => visitor.visit_u128(magnitude),
                         }
                     }
-                    3 => {
-                        let magnitude = bignum_magnitude(3, tag.content())?;
+                    NEGATIVE_BIGNUM => {
+                        let magnitude = bignum_magnitude(NEGATIVE_BIGNUM, tag.content())?;
                         let Ok(magnitude) = i128::try_from(magnitude) else {
                             return Err(unsupported(format_args!(
                                 "bignum -1 - {magnitude}, which is below the range of i128"

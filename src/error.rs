@@ -43,10 +43,10 @@ pub enum Error {
     UnexpectedBreak,
     /// The same key appeared more than once in a map.
     ///
-    /// Decoding with [`Decoder::allow_duplicate_keys`] accepts such a map
-    /// instead, keeping the last value of the key.
+    /// Decoding with [`Decoder::duplicate_keys`] set to a mode which keeps
+    /// the first or the last value accepts such a map instead.
     ///
-    /// [`Decoder::allow_duplicate_keys`]: crate::Decoder::allow_duplicate_keys
+    /// [`Decoder::duplicate_keys`]: crate::Decoder::duplicate_keys
     DuplicateMapKey(Box<DataItem>),
     /// An indefinite length item appeared while indefinite lengths were
     /// rejected by [`Decoder::allow_indefinite`].

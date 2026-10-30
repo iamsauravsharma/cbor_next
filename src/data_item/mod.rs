@@ -35,7 +35,7 @@ pub enum DataItem {
     /// store `0`, -10 would store `9`. The actual negative value is derived
     /// as `-(1 + value)`. Building this variant from the value it stands for
     /// is done with `DataItem::from(-10_i64)` or, for the full `CBOR` range,
-    /// `DataItem::try_from(-10_i128)`.
+    /// `DataItem::from(-10_i128)`, which writes a bignum past that range.
     Signed(u64),
     /// Byte string represented by `CBOR` major type 2.
     ///

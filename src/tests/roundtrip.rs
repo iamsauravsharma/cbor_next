@@ -21,7 +21,7 @@ fn integer() {
     compare_cbor_value("1bffffffffffffffff", 18_446_744_073_709_551_615u64);
     compare_cbor_value(
         "3bffffffffffffffff",
-        DataItem::try_from(-18_446_744_073_709_551_616_i128).unwrap(),
+        DataItem::from(-18_446_744_073_709_551_616_i128),
     );
     compare_cbor_value("20", -1);
     compare_cbor_value("29", -10);

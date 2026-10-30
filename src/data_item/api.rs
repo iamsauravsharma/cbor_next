@@ -1,10 +1,12 @@
 use crate::content::{Array, ByteString, Map, Simple, Tag, TextString};
 use crate::data_item::DataItem;
+use crate::data_item::convert::bignum_magnitude;
 use crate::decode::Decoder;
 use crate::deterministic;
 use crate::deterministic::DeterministicMode;
 use crate::encode::Encoder;
 use crate::error::Error;
+use crate::tags::{NEGATIVE_BIGNUM, UNSIGNED_BIGNUM};
 
 impl DataItem {
     /// Create a byte string item.
@@ -346,7 +348,8 @@ impl DataItem {
         }
     }
 
-    /// Get as integer which can be both signed or unsigned
+    /// Get as integer which can be both signed or unsigned, including a
+    /// bignum of tag 2 or 3 whose value fits an `i128`
     ///
     /// # Example
     /// ```
@@ -354,12 +357,25 @@ impl DataItem {
     ///
     /// assert_eq!(DataItem::from(-21).as_integer(), Some(-21));
     /// assert_eq!(DataItem::from(345).as_integer(), Some(345));
+    /// assert_eq!(DataItem::from(1_i128 << 100).as_integer(), Some(1 << 100));
+    /// assert_eq!(DataItem::from(u128::MAX).as_integer(), None);
     /// ```
     #[must_use]
     pub fn as_integer(&self) -> Option<i128> {
         match self {
             Self::Unsigned(num) => Some(i128::from(*num)),
             Self::Signed(num) => Some(-(i128::from(*num) + 1)),
+            Self::Tag(tag)
+                if tag.number() == UNSIGNED_BIGNUM || tag.number() == NEGATIVE_BIGNUM =>
+            {
+                let magnitude = bignum_magnitude(&tag.content().as_byte()?.to_bytes())?;
+                let magnitude = i128::try_from(magnitude).ok()?;
+                if tag.number() == UNSIGNED_BIGNUM {
+                    Some(magnitude)
+                } else {
+                    Some(-1 - magnitude)
+                }
+            }
             _ => None,
         }
     }

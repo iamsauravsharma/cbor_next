@@ -51,51 +51,19 @@ where
     Ok(to_data_item(value)?.encode())
 }
 
-/// Number of the tag which holds an unsigned bignum
-const UNSIGNED_BIGNUM: u64 = 2;
-
-/// Number of the tag which holds a negative bignum
-const NEGATIVE_BIGNUM: u64 = 3;
-
-/// An integer which does not fit a major type 0 or 1 item, as a bignum.
-///
-/// The magnitude of a negative number is `-1 - value`, as RFC 8949 section
-/// 3.4.3 defines tag 3, and leading zero bytes are left out as its preferred
-/// serialization asks.
-pub(super) fn bignum(negative: bool, magnitude: u128) -> DataItem {
-    let bytes = magnitude.to_be_bytes();
-    let start = bytes
-        .iter()
-        .position(|byte| *byte != 0)
-        .unwrap_or(bytes.len());
-    let number = if negative {
-        NEGATIVE_BIGNUM
-    } else {
-        UNSIGNED_BIGNUM
-    };
-    DataItem::tag(number, DataItem::bytes(&bytes[start..]))
-}
-
-/// The data item of a 128 bit integer: a major type 0 or 1 item when it fits
-/// one, a bignum otherwise.
-pub(super) fn integer_item(value: i128) -> DataItem {
-    if let Ok(unsigned) = u64::try_from(value) {
-        DataItem::Unsigned(unsigned)
-    } else if let Ok(negative) = u64::try_from(!value) {
-        DataItem::Signed(negative)
-    } else if value < 0 {
-        // `!value` is `-1 - value`, which is not negative
-        bignum(
-            true,
-            u128::try_from(!value).expect("`!value` is not negative"),
-        )
-    } else {
-        bignum(false, u128::try_from(value).expect("value is not negative"))
-    }
-}
-
 fn single_entry(name: &str, content: DataItem) -> DataItem {
     DataItem::map([(DataItem::from(name), content)])
+}
+
+/// Define the methods which turn a value into a data item with `From`.
+macro_rules! serialize_with_from {
+    ($($method:ident($type:ty)),* $(,)?) => {
+        $(
+            fn $method(self, value: $type) -> Result<DataItem, Error> {
+                Ok(DataItem::from(value))
+            }
+        )*
+    };
 }
 
 struct ItemSerializer;
@@ -111,64 +79,28 @@ impl Serializer for ItemSerializer {
     type SerializeTupleStruct = SeqSerializer;
     type SerializeTupleVariant = SeqSerializer;
 
-    fn serialize_bool(self, value: bool) -> Result<DataItem, Error> {
-        Ok(DataItem::from(value))
-    }
-
-    fn serialize_i8(self, value: i8) -> Result<DataItem, Error> {
-        Ok(DataItem::from(value))
-    }
-
-    fn serialize_i16(self, value: i16) -> Result<DataItem, Error> {
-        Ok(DataItem::from(value))
-    }
-
-    fn serialize_i32(self, value: i32) -> Result<DataItem, Error> {
-        Ok(DataItem::from(value))
-    }
-
-    fn serialize_i64(self, value: i64) -> Result<DataItem, Error> {
-        Ok(DataItem::from(value))
-    }
-
-    fn serialize_i128(self, value: i128) -> Result<DataItem, Error> {
-        Ok(integer_item(value))
-    }
-
-    fn serialize_u8(self, value: u8) -> Result<DataItem, Error> {
-        Ok(DataItem::from(value))
-    }
-
-    fn serialize_u16(self, value: u16) -> Result<DataItem, Error> {
-        Ok(DataItem::from(value))
-    }
-
-    fn serialize_u32(self, value: u32) -> Result<DataItem, Error> {
-        Ok(DataItem::from(value))
-    }
-
-    fn serialize_u64(self, value: u64) -> Result<DataItem, Error> {
-        Ok(DataItem::from(value))
-    }
-
-    fn serialize_u128(self, value: u128) -> Result<DataItem, Error> {
-        Ok(u64::try_from(value).map_or_else(|_| bignum(false, value), DataItem::Unsigned))
+    serialize_with_from! {
+        serialize_bool(bool),
+        serialize_i8(i8),
+        serialize_i16(i16),
+        serialize_i32(i32),
+        serialize_i64(i64),
+        serialize_i128(i128),
+        serialize_u8(u8),
+        serialize_u16(u16),
+        serialize_u32(u32),
+        serialize_u64(u64),
+        serialize_u128(u128),
+        serialize_f64(f64),
+        serialize_str(&str),
     }
 
     fn serialize_f32(self, value: f32) -> Result<DataItem, Error> {
         Ok(DataItem::Floating(f32_to_f64(value)))
     }
 
-    fn serialize_f64(self, value: f64) -> Result<DataItem, Error> {
-        Ok(DataItem::Floating(value))
-    }
-
     fn serialize_char(self, value: char) -> Result<DataItem, Error> {
         Ok(DataItem::from(value.to_string()))
-    }
-
-    fn serialize_str(self, value: &str) -> Result<DataItem, Error> {
-        Ok(DataItem::from(value))
     }
 
     fn serialize_bytes(self, value: &[u8]) -> Result<DataItem, Error> {
@@ -361,68 +293,34 @@ impl SeqSerializer {
     }
 }
 
-impl SerializeSeq for SeqSerializer {
-    type Error = Error;
-    type Ok = DataItem;
+/// Implement the traits whose elements all land in a [`SeqSerializer`].
+macro_rules! impl_serialize_seq {
+    ($($trait:ident::$method:ident),* $(,)?) => {
+        $(
+            impl $trait for SeqSerializer {
+                type Error = Error;
+                type Ok = DataItem;
 
-    fn serialize_element<T>(&mut self, value: &T) -> Result<(), Error>
-    where
-        T: Serialize + ?Sized,
-    {
-        self.push(value)
-    }
+                fn $method<T>(&mut self, value: &T) -> Result<(), Error>
+                where
+                    T: Serialize + ?Sized,
+                {
+                    self.push(value)
+                }
 
-    fn end(self) -> Result<DataItem, Error> {
-        self.finish()
-    }
+                fn end(self) -> Result<DataItem, Error> {
+                    self.finish()
+                }
+            }
+        )*
+    };
 }
 
-impl SerializeTuple for SeqSerializer {
-    type Error = Error;
-    type Ok = DataItem;
-
-    fn serialize_element<T>(&mut self, value: &T) -> Result<(), Error>
-    where
-        T: Serialize + ?Sized,
-    {
-        self.push(value)
-    }
-
-    fn end(self) -> Result<DataItem, Error> {
-        self.finish()
-    }
-}
-
-impl SerializeTupleStruct for SeqSerializer {
-    type Error = Error;
-    type Ok = DataItem;
-
-    fn serialize_field<T>(&mut self, value: &T) -> Result<(), Error>
-    where
-        T: Serialize + ?Sized,
-    {
-        self.push(value)
-    }
-
-    fn end(self) -> Result<DataItem, Error> {
-        self.finish()
-    }
-}
-
-impl SerializeTupleVariant for SeqSerializer {
-    type Error = Error;
-    type Ok = DataItem;
-
-    fn serialize_field<T>(&mut self, value: &T) -> Result<(), Error>
-    where
-        T: Serialize + ?Sized,
-    {
-        self.push(value)
-    }
-
-    fn end(self) -> Result<DataItem, Error> {
-        self.finish()
-    }
+impl_serialize_seq! {
+    SerializeSeq::serialize_element,
+    SerializeTuple::serialize_element,
+    SerializeTupleStruct::serialize_field,
+    SerializeTupleVariant::serialize_field,
 }
 
 struct MapSerializer {
@@ -453,13 +351,6 @@ impl MapSerializer {
                 Ok(())
             }
         }
-    }
-
-    fn insert_field<T>(&mut self, name: &'static str, value: &T) -> Result<(), Error>
-    where
-        T: Serialize + ?Sized,
-    {
-        self.insert(DataItem::from(name), value.serialize(ItemSerializer)?)
     }
 
     fn finish(self) -> DataItem {
@@ -499,34 +390,28 @@ impl SerializeMap for MapSerializer {
     }
 }
 
-impl SerializeStruct for MapSerializer {
-    type Error = Error;
-    type Ok = DataItem;
+/// Implement the traits whose fields all land in a [`MapSerializer`] under
+/// their name.
+macro_rules! impl_serialize_struct {
+    ($($trait:ident),* $(,)?) => {
+        $(
+            impl $trait for MapSerializer {
+                type Error = Error;
+                type Ok = DataItem;
 
-    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Error>
-    where
-        T: Serialize + ?Sized,
-    {
-        self.insert_field(key, value)
-    }
+                fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Error>
+                where
+                    T: Serialize + ?Sized,
+                {
+                    self.insert(DataItem::from(key), value.serialize(ItemSerializer)?)
+                }
 
-    fn end(self) -> Result<DataItem, Error> {
-        Ok(self.finish())
-    }
+                fn end(self) -> Result<DataItem, Error> {
+                    Ok(self.finish())
+                }
+            }
+        )*
+    };
 }
 
-impl SerializeStructVariant for MapSerializer {
-    type Error = Error;
-    type Ok = DataItem;
-
-    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Error>
-    where
-        T: Serialize + ?Sized,
-    {
-        self.insert_field(key, value)
-    }
-
-    fn end(self) -> Result<DataItem, Error> {
-        Ok(self.finish())
-    }
-}
+impl_serialize_struct!(SerializeStruct, SerializeStructVariant);
