@@ -8,7 +8,6 @@ use indexmap::IndexMap;
 use indexmap::map::Entry;
 
 use super::de::{SIMPLE_VARIANT, TAG_VARIANT, UNDEFINED_VARIANT};
-use super::ser::{bignum, integer_item};
 use super::wrapper::{DATA_ITEM_NAME, Tagged, Undefined};
 use crate::content::{Array, Map, Simple};
 use crate::data_item::DataItem;
@@ -91,7 +90,7 @@ impl<'de> Visitor<'de> for ItemVisitor {
     }
 
     fn visit_i128<E>(self, value: i128) -> Result<DataItem, E> {
-        Ok(integer_item(value))
+        Ok(DataItem::from(value))
     }
 
     fn visit_u64<E>(self, value: u64) -> Result<DataItem, E> {
@@ -99,7 +98,7 @@ impl<'de> Visitor<'de> for ItemVisitor {
     }
 
     fn visit_u128<E>(self, value: u128) -> Result<DataItem, E> {
-        Ok(u64::try_from(value).map_or_else(|_| bignum(false, value), DataItem::Unsigned))
+        Ok(DataItem::from(value))
     }
 
     fn visit_f32<E>(self, value: f32) -> Result<DataItem, E> {

@@ -64,6 +64,9 @@ pub mod error;
 /// Module for index
 pub mod index;
 
+/// Module for the numbers of the tags registered by RFC 8949 and RFC 8742
+pub mod tags;
+
 /// Module for converting between Rust values and data items with serde
 #[cfg(feature = "serde")]
 #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
@@ -74,7 +77,7 @@ pub use content::{Array, ByteString, Map, Simple, Tag, TextString};
 #[doc(inline)]
 pub use data_item::DataItem;
 #[doc(inline)]
-pub use decode::{Decoder, Sequence};
+pub use decode::{Decoder, DuplicateKeyMode, Sequence};
 #[doc(inline)]
 pub use deterministic::DeterministicMode;
 #[doc(inline)]

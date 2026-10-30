@@ -30,15 +30,45 @@ fn nesting_depth_is_configurable() {
 }
 
 #[test]
-fn duplicate_keys_can_be_allowed() {
-    let bytes = hex_bytes("a201020103");
+fn duplicate_keys_have_three_modes() {
+    use crate::decode::DuplicateKeyMode;
+
+    // {1: 2, 1: 3, 1: 4}
+    let bytes = hex_bytes("a3010201030104");
     assert_eq!(
         DataItem::decode(&bytes),
         Err(Error::DuplicateMapKey(Box::new(DataItem::from(1))))
     );
-    let decoder = Decoder::new().allow_duplicate_keys(true);
-    // the last value of a repeated key is the one which is kept
-    assert_eq!(decoder.decode(&bytes).unwrap(), DataItem::map([(1, 3)]));
+    assert_eq!(
+        Decoder::new()
+            .duplicate_keys(DuplicateKeyMode::Reject)
+            .decode(&bytes),
+        Err(Error::DuplicateMapKey(Box::new(DataItem::from(1))))
+    );
+    assert_eq!(
+        Decoder::new()
+            .duplicate_keys(DuplicateKeyMode::First)
+            .decode(&bytes)
+            .unwrap(),
+        DataItem::map([(1, 2)])
+    );
+    assert_eq!(
+        Decoder::new()
+            .duplicate_keys(DuplicateKeyMode::Last)
+            .decode(&bytes)
+            .unwrap(),
+        DataItem::map([(1, 4)])
+    );
+    // the mode reaches nested maps and indefinite length maps
+    let nested = hex_bytes("a1 00 bf 01 02 01 03 ff".replace(' ', "").as_str());
+    assert_eq!(
+        Decoder::new()
+            .duplicate_keys(DuplicateKeyMode::First)
+            .decode(&nested)
+            .unwrap(),
+        DataItem::map([(0, DataItem::map([(1, 2)]))])
+    );
+    assert_eq!(DuplicateKeyMode::default(), DuplicateKeyMode::Reject);
 }
 
 #[test]
@@ -332,11 +362,143 @@ fn most_negative_integers_convert() {
         DataItem::from(i64::MIN).as_integer(),
         Some(i128::from(i64::MIN))
     );
+    assert_eq!(DataItem::from(-(1_i128 << 64)), DataItem::Signed(u64::MAX));
     assert_eq!(
-        DataItem::try_from(-(1_i128 << 64)).unwrap(),
-        DataItem::Signed(u64::MAX)
+        DataItem::from(u64::MAX).as_integer(),
+        Some(i128::from(u64::MAX))
     );
-    assert!(DataItem::try_from(i128::MIN).is_err());
+}
+
+#[test]
+fn integers_past_64_bits_are_bignums() {
+    // the first numbers past the range of major types 0 and 1
+    assert_eq!(
+        DataItem::from(1_u128 << 64).encode(),
+        hex_bytes("c249010000000000000000")
+    );
+    assert_eq!(
+        DataItem::from(1_i128 << 64).encode(),
+        hex_bytes("c249010000000000000000")
+    );
+    assert_eq!(
+        DataItem::from(-(1_i128 << 64) - 1).encode(),
+        hex_bytes("c349010000000000000000")
+    );
+    // the ends of the 128 bit range, without leading zero bytes
+    assert_eq!(
+        DataItem::from(u128::MAX).encode(),
+        hex_bytes("c250ffffffffffffffffffffffffffffffff")
+    );
+    assert_eq!(
+        DataItem::from(i128::MIN).encode(),
+        hex_bytes("c3507fffffffffffffffffffffffffffffff")
+    );
+    // a bignum reads back as the integer it stands for
+    for value in [1_i128 << 64, -(1_i128 << 64) - 1, i128::MIN, i128::MAX] {
+        assert_eq!(DataItem::from(value).as_integer(), Some(value));
+    }
+    assert_eq!(DataItem::from(u128::MAX).as_integer(), None);
+    // leading zero bytes are accepted when reading
+    assert_eq!(
+        DataItem::decode(&hex_bytes("c2420005"))
+            .unwrap()
+            .as_integer(),
+        Some(5)
+    );
+    assert_eq!(
+        DataItem::decode(&hex_bytes("c34100")).unwrap().as_integer(),
+        Some(-1)
+    );
+    // content which is not a byte string, or wider than 128 bits, is not read
+    assert_eq!(DataItem::tag(2, 5).as_integer(), None);
+    assert_eq!(
+        DataItem::decode(&hex_bytes("c2510100000000000000000000000000000000"))
+            .unwrap()
+            .as_integer(),
+        None
+    );
+}
+
+#[test]
+fn registered_tags_check_their_content() {
+    use crate::content::Tag;
+    use crate::tags;
+
+    let text = DataItem::from("2013-03-21T20:04:00Z");
+    for number in [
+        tags::DATE_TIME_STRING,
+        tags::URI,
+        tags::BASE64URL,
+        tags::BASE64,
+        tags::MIME_MESSAGE,
+    ] {
+        assert!(Tag::new(number, text.clone()).is_valid(), "{number}");
+        assert!(!Tag::new(number, 1).is_valid(), "{number}");
+    }
+    assert!(Tag::new(tags::EPOCH_TIME, 1).is_valid());
+    assert!(Tag::new(tags::EPOCH_TIME, -1).is_valid());
+    assert!(Tag::new(tags::EPOCH_TIME, 1.5).is_valid());
+    assert!(!Tag::new(tags::EPOCH_TIME, text.clone()).is_valid());
+    assert!(Tag::new(tags::UNSIGNED_BIGNUM, DataItem::bytes([1])).is_valid());
+    assert!(!Tag::new(tags::NEGATIVE_BIGNUM, 1).is_valid());
+    // an exponent and a mantissa, which may be a bignum
+    let bignum = DataItem::from(1_u128 << 64);
+    for number in [tags::DECIMAL_FRACTION, tags::BIGFLOAT] {
+        assert!(
+            Tag::new(
+                number,
+                DataItem::array([DataItem::from(-2), DataItem::from(27)])
+            )
+            .is_valid()
+        );
+        assert!(
+            Tag::new(
+                number,
+                DataItem::array([DataItem::from(-2), bignum.clone()])
+            )
+            .is_valid()
+        );
+        assert!(
+            !Tag::new(
+                number,
+                DataItem::array([bignum.clone(), DataItem::from(27)])
+            )
+            .is_valid()
+        );
+        assert!(!Tag::new(number, DataItem::array([DataItem::from(-2)])).is_valid());
+        assert!(
+            !Tag::new(
+                number,
+                DataItem::array([DataItem::from(-2), DataItem::from(1.5)])
+            )
+            .is_valid()
+        );
+        assert!(
+            !Tag::new(
+                number,
+                DataItem::array([DataItem::from(-2), DataItem::tag(2, 1)])
+            )
+            .is_valid()
+        );
+    }
+    // embedded bytes must be well formed, but need not be valid
+    assert!(
+        Tag::new(
+            tags::EMBEDDED_ITEM,
+            DataItem::bytes(hex_bytes("a201020103"))
+        )
+        .is_valid()
+    );
+    assert!(!Tag::new(tags::EMBEDDED_ITEM, DataItem::bytes(hex_bytes("0102"))).is_valid());
+    assert!(!Tag::new(tags::EMBEDDED_ITEM, DataItem::bytes(hex_bytes("18"))).is_valid());
+    assert!(!Tag::new(tags::EMBEDDED_ITEM, 1).is_valid());
+    assert!(Tag::new(tags::EMBEDDED_SEQUENCE, DataItem::bytes(hex_bytes("0102"))).is_valid());
+    assert!(Tag::new(tags::EMBEDDED_SEQUENCE, DataItem::bytes([])).is_valid());
+    assert!(!Tag::new(tags::EMBEDDED_SEQUENCE, DataItem::bytes(hex_bytes("0118"))).is_valid());
+    // any content goes for the rest
+    assert!(Tag::new(tags::SELF_DESCRIBED, 1).is_valid());
+    assert!(Tag::new(tags::EXPECTED_BASE64, 1).is_valid());
+    assert!(Tag::new(1_000, DataItem::Undefined).is_valid());
 }
 
 #[test]

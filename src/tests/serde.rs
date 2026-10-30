@@ -330,3 +330,72 @@ fn signaling_nan_keeps_its_significand() {
     assert_eq!(read, item);
     assert_eq!(read.encode(), bytes("fa 7f800001"));
 }
+
+#[test]
+fn registered_tags_have_types() {
+    use crate::serde::tags::{
+        DateTimeString, Embedded, EmbeddedSequence, EpochTime, SelfDescribed, Uri,
+    };
+    use crate::tags;
+
+    // the aliases fix the registered number and the content type
+    let uri = Uri("a".into());
+    assert_eq!(to_vec(&uri).unwrap(), bytes("d8 20 61 61"));
+    assert_eq!(from_slice::<Uri>(&bytes("d8 20 61 61")).unwrap(), uri);
+    assert!(from_slice::<Uri>(&bytes("d8 21 61 61")).is_err());
+    assert!(from_slice::<Uri>(&bytes("d8 20 01")).is_err());
+    assert_eq!(
+        to_data_item(&DateTimeString("t".into())).unwrap(),
+        DataItem::tag(tags::DATE_TIME_STRING, "t")
+    );
+    assert_eq!(to_vec(&EpochTime(1.5_f64)).unwrap(), bytes("c1 f9 3e00"));
+    assert_eq!(
+        to_vec(&SelfDescribed(Point { x: 1, y: None })).unwrap(),
+        bytes("d9 d9f7 a2 6178 01 6179 f6")
+    );
+
+    // tag 24 holds the encoded item, tag 63 the encoded sequence
+    let embedded = Embedded(Point { x: 1, y: None });
+    let encoded = to_vec(&embedded).unwrap();
+    assert_eq!(encoded, bytes("d8 18 47 a2 6178 01 6179 f6"));
+    assert_eq!(from_slice::<Embedded<Point>>(&encoded).unwrap(), embedded);
+    assert_eq!(
+        to_data_item(&embedded).unwrap(),
+        DataItem::tag(
+            tags::EMBEDDED_ITEM,
+            DataItem::bytes(bytes("a2 6178 01 6179 f6"))
+        )
+    );
+    let sequence = EmbeddedSequence(vec![Shape::Empty, Shape::Circle(2)]);
+    let encoded = to_vec(&sequence).unwrap();
+    assert_eq!(
+        encoded,
+        bytes("d8 3f 4f 65 456d707479 a1 66 436972636c65 02")
+    );
+    assert_eq!(
+        from_slice::<EmbeddedSequence<Shape>>(&encoded).unwrap(),
+        sequence
+    );
+    assert_eq!(
+        from_slice::<EmbeddedSequence<u8>>(&bytes("d8 3f 40")).unwrap(),
+        EmbeddedSequence(vec![])
+    );
+
+    // the content must be a byte string holding well formed items of the type
+    assert!(from_slice::<Embedded<u8>>(&bytes("d8 18 01")).is_err());
+    assert!(from_slice::<Embedded<u8>>(&bytes("d8 18 41 18")).is_err());
+    assert!(from_slice::<Embedded<u8>>(&bytes("d8 18 42 01 02")).is_err());
+    assert!(from_slice::<Embedded<u8>>(&bytes("d8 18 41 61")).is_err());
+    assert!(from_slice::<EmbeddedSequence<u8>>(&bytes("d8 3f 42 01 18")).is_err());
+
+    // through another format the byte string is a sequence of numbers
+    assert_eq!(serde_json::to_string(&Embedded(1_u8)).unwrap(), "[24,[1]]");
+    assert_eq!(
+        serde_json::from_str::<Embedded<u8>>("[24,[1]]").unwrap(),
+        Embedded(1)
+    );
+    assert_eq!(
+        serde_json::from_str::<EmbeddedSequence<u8>>("[63,[1,2]]").unwrap(),
+        EmbeddedSequence(vec![1, 2])
+    );
+}

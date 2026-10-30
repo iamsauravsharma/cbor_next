@@ -20,6 +20,50 @@ use crate::error::Error;
 /// Byte which closes an indefinite length item.
 const BREAK: u8 = 0xFF;
 
+/// What a decoder does with a map which uses the same key more than once.
+///
+/// These are the three behaviours RFC 8949 section 5.6 lists for a generic
+/// decoder. Keys are compared as in section 5.6.1: `1` and `1.0` differ,
+/// `0.0` and `-0.0` match, and strings, arrays and maps match by content.
+///
+/// # Example
+/// ```rust
+/// use cbor_next::{DataItem, Decoder, DuplicateKeyMode, Error};
+///
+/// // {1: 2, 1: 3}
+/// let bytes = [0xa2, 0x01, 0x02, 0x01, 0x03];
+/// assert!(matches!(
+///     Decoder::new().decode(&bytes),
+///     Err(Error::DuplicateMapKey(_))
+/// ));
+/// assert_eq!(
+///     Decoder::new()
+///         .duplicate_keys(DuplicateKeyMode::First)
+///         .decode(&bytes)
+///         .unwrap(),
+///     DataItem::map([(1, 2)])
+/// );
+/// assert_eq!(
+///     Decoder::new()
+///         .duplicate_keys(DuplicateKeyMode::Last)
+///         .decode(&bytes)
+///         .unwrap(),
+///     DataItem::map([(1, 3)])
+/// );
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub enum DuplicateKeyMode {
+    /// Reject the map with [`Error::DuplicateMapKey`], as RFC 8949 calls such
+    /// a map invalid.
+    #[default]
+    Reject,
+    /// Keep the value of the first occurrence of the key.
+    First,
+    /// Keep the value of the last occurrence of the key.
+    Last,
+}
+
 /// Data items of a sequence, decoded one at a time by [`Decoder::sequence`].
 #[derive(Debug)]
 pub struct Sequence<'a> {
@@ -48,7 +92,7 @@ impl Iterator for Sequence<'_> {
 ///
 /// # Example
 /// ```rust
-/// use cbor_next::{DataItem, Decoder, Error};
+/// use cbor_next::{DataItem, Decoder, DuplicateKeyMode, Error};
 ///
 /// // a shallow limit rejects deeply nested input early
 /// let nested = Decoder::new().max_nesting_depth(2);
@@ -61,9 +105,9 @@ impl Iterator for Sequence<'_> {
 ///     Err(Error::RecursionLimit { limit: 2 })
 /// );
 ///
-/// // a repeated map key is rejected unless it is explicitly allowed
+/// // a repeated map key is rejected unless a mode which keeps one is chosen
 /// assert!(DataItem::decode(&[0xa2, 0x01, 0x02, 0x01, 0x03]).is_err());
-/// let lenient = Decoder::new().allow_duplicate_keys(true);
+/// let lenient = Decoder::new().duplicate_keys(DuplicateKeyMode::Last);
 /// assert_eq!(
 ///     lenient.decode(&[0xa2, 0x01, 0x02, 0x01, 0x03]).unwrap(),
 ///     DataItem::map([(1, 3)])
@@ -73,7 +117,7 @@ impl Iterator for Sequence<'_> {
 pub struct Decoder {
     max_nesting_depth: usize,
     max_items: usize,
-    allow_duplicate_keys: bool,
+    duplicate_keys: DuplicateKeyMode,
     allow_indefinite: bool,
     require_deterministic: Option<DeterministicMode>,
 }
@@ -83,7 +127,7 @@ impl Default for Decoder {
         Self {
             max_nesting_depth: Self::DEFAULT_MAX_NESTING_DEPTH,
             max_items: usize::MAX,
-            allow_duplicate_keys: false,
+            duplicate_keys: DuplicateKeyMode::Reject,
             allow_indefinite: true,
             require_deterministic: None,
         }
@@ -141,15 +185,13 @@ impl Decoder {
         self
     }
 
-    /// Accept a map which uses the same key more than once, keeping the value
-    /// of the last occurrence.
+    /// Set what is done with a map which uses the same key more than once.
     ///
-    /// RFC 8949 calls such a map invalid, so it is rejected by default. Keys
-    /// are compared as in section 5.6.1: `1` and `1.0` differ, `0.0` and `-0.0`
-    /// match, and strings, arrays and maps match by content.
+    /// RFC 8949 calls such a map invalid, so it is rejected by default. See
+    /// [`DuplicateKeyMode`] for the choices and for how keys are compared.
     #[must_use]
-    pub fn allow_duplicate_keys(mut self, allow: bool) -> Self {
-        self.allow_duplicate_keys = allow;
+    pub fn duplicate_keys(mut self, mode: DuplicateKeyMode) -> Self {
+        self.duplicate_keys = mode;
         self
     }
 
@@ -414,11 +456,15 @@ impl Decoder {
     ) -> Result<(), Error> {
         match entries.entry(key) {
             Entry::Occupied(mut entry) => {
-                if self.allow_duplicate_keys {
-                    entry.insert(value);
-                    Ok(())
-                } else {
-                    Err(Error::DuplicateMapKey(Box::new(entry.key().clone())))
+                match self.duplicate_keys {
+                    DuplicateKeyMode::Reject => {
+                        Err(Error::DuplicateMapKey(Box::new(entry.key().clone())))
+                    }
+                    DuplicateKeyMode::First => Ok(()),
+                    DuplicateKeyMode::Last => {
+                        entry.insert(value);
+                        Ok(())
+                    }
                 }
             }
             Entry::Vacant(entry) => {
