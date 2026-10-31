@@ -13,6 +13,7 @@ use crate::data_item::convert::{f16_to_f64, f32_to_f64};
 use crate::deterministic::{self, DeterministicMode};
 use crate::encode::shortest_float_additional;
 use crate::error::Error;
+use crate::validate::{self, TagValidity};
 
 /// Byte which closes an indefinite length item.
 const BREAK: u8 = 0xFF;
@@ -115,6 +116,7 @@ pub struct Decoder {
     duplicate_keys: DuplicateKeyMode,
     allow_indefinite: bool,
     require_deterministic: Option<DeterministicMode>,
+    tag_validity: TagValidity,
 }
 
 impl Default for Decoder {
@@ -125,6 +127,7 @@ impl Default for Decoder {
             duplicate_keys: DuplicateKeyMode::Reject,
             allow_indefinite: true,
             require_deterministic: None,
+            tag_validity: TagValidity::Off,
         }
     }
 }
@@ -204,6 +207,31 @@ impl Decoder {
     #[must_use]
     pub fn require_deterministic(mut self, mode: DeterministicMode) -> Self {
         self.require_deterministic = Some(mode);
+        self
+    }
+
+    /// Check registered tags at the level; off by default.
+    ///
+    /// At the value level, tags 24 and 63 must hold `CBOR` this decoder
+    /// accepts.
+    ///
+    /// # Example
+    /// ```rust
+    /// use cbor_next::{Decoder, Error, TagValidity};
+    ///
+    /// // 1("a"): epoch time around text
+    /// let bytes = [0xc1, 0x61, 0x61];
+    /// assert!(Decoder::new().decode(&bytes).is_ok());
+    /// assert!(matches!(
+    ///     Decoder::new()
+    ///         .tag_validity(TagValidity::Type)
+    ///         .decode(&bytes),
+    ///     Err(Error::InvalidTagContent(_))
+    /// ));
+    /// ```
+    #[must_use]
+    pub fn tag_validity(mut self, level: TagValidity) -> Self {
+        self.tag_validity = level;
         self
     }
 
@@ -312,7 +340,16 @@ impl Decoder {
             6 => {
                 let number = self.read_argument(major_type, additional, reader)?;
                 let content = self.read_item(reader, next_depth)?;
-                Ok(DataItem::Tag(Tag::new(number, content)))
+                let tag = Tag::new(number, content);
+                if self.tag_validity != TagValidity::Off {
+                    // embedded CBOR shares the depth left, so nesting stays
+                    // bounded
+                    let inner = self.clone().max_nesting_depth(next_depth);
+                    if !validate::is_valid_at(&tag, self.tag_validity, &inner) {
+                        return Err(Error::InvalidTagContent(Box::new(DataItem::Tag(tag))));
+                    }
+                }
+                Ok(DataItem::Tag(tag))
             }
             7 => self.read_simple_or_float(additional, reader),
             _ => unreachable!("major type can only be between 0 to 7"),

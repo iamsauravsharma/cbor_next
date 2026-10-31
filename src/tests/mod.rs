@@ -10,6 +10,7 @@ mod rfc_8949_appendix_a;
 mod roundtrip;
 #[cfg(feature = "serde")]
 mod serde;
+mod validity;
 
 use crate::data_item::DataItem;
 use crate::error::Error;

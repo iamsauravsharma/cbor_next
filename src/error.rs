@@ -37,6 +37,10 @@ pub enum Error {
     ///
     /// [`Decoder::duplicate_keys`]: crate::Decoder::duplicate_keys
     DuplicateMapKey(Box<DataItem>),
+    /// A tag failed [`Decoder::tag_validity`]; holds the whole tag.
+    ///
+    /// [`Decoder::tag_validity`]: crate::Decoder::tag_validity
+    InvalidTagContent(Box<DataItem>),
     /// An indefinite length item, disallowed by
     /// [`Decoder::allow_indefinite`].
     ///
@@ -104,6 +108,7 @@ impl std::fmt::Display for Error {
             Self::DuplicateMapKey(key) => {
                 write!(f, "same map key {key} is repeated multiple times")
             }
+            Self::InvalidTagContent(tag) => write!(f, "tag {tag} has invalid content"),
             Self::IndefiniteNotAllowed => {
                 write!(f, "indefinite length data item is not allowed")
             }

@@ -7,6 +7,7 @@ use crate::deterministic::DeterministicMode;
 use crate::encode::Encoder;
 use crate::error::Error;
 use crate::tags::{NEGATIVE_BIGNUM, UNSIGNED_BIGNUM};
+use crate::validate::{self, TagValidity};
 
 impl DataItem {
     /// Create a byte string item.
@@ -692,6 +693,23 @@ impl DataItem {
     /// If the bytes are not one well formed item or exceed the default limits
     pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
         Decoder::new().decode(bytes)
+    }
+
+    /// Check every tag in the item at the level.
+    ///
+    /// # Errors
+    /// [`Error::InvalidTagContent`] with the first tag that fails
+    ///
+    /// # Example
+    /// ```rust
+    /// use cbor_next::{DataItem, TagValidity, tags};
+    ///
+    /// let item = DataItem::array([DataItem::tag(tags::EPOCH_TIME, "soon")]);
+    /// assert!(item.validate(TagValidity::Off).is_ok());
+    /// assert!(item.validate(TagValidity::Type).is_err());
+    /// ```
+    pub fn validate(&self, level: TagValidity) -> Result<(), Error> {
+        validate::validate(self, level)
     }
 
     /// Whether the item is in deterministic form for the mode.

@@ -10,12 +10,16 @@ readme = "README.MD"
 keywords = ["cbor"]
 
 [dependencies]
+base64 = { version = "0.22.1", optional = true }
+fluent-uri = { version = "0.3.2", optional = true }
+time = { version = "0.3.37", default-features = false, features = ["alloc", "parsing"], optional = true }
 half = "2.6.0"
 indexmap = "2.9.0"
 serde = { version = "1.0.200", default-features = false, features = ["std"], optional = true }
 
 [features]
 serde = ["dep:serde"]
+validation = ["dep:base64", "dep:fluent-uri", "dep:time"]
 
 [dev-dependencies]
 hex = "0.4.3"

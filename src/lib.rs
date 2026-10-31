@@ -66,6 +66,9 @@ pub mod index;
 /// Registered tag numbers
 pub mod tags;
 
+/// Tag validity
+pub mod validate;
+
 /// Serde support
 #[cfg(feature = "serde")]
 #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
@@ -85,6 +88,8 @@ pub use encode::{Encoder, FloatMode, LengthMode};
 pub use error::Error;
 #[doc(inline)]
 pub use index::Get;
+#[doc(inline)]
+pub use validate::TagValidity;
 
 #[cfg(test)]
 mod tests;

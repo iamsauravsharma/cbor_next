@@ -1,11 +1,10 @@
 use std::fmt::{Debug, Formatter, Result as FmtResult, Write as _};
 
 use crate::data_item::DataItem;
-use crate::decode::{Decoder, DuplicateKeyMode};
-use crate::tags::{
-    BASE64, BASE64URL, BIGFLOAT, DATE_TIME_STRING, DECIMAL_FRACTION, EMBEDDED_ITEM,
-    EMBEDDED_SEQUENCE, EPOCH_TIME, MIME_MESSAGE, NEGATIVE_BIGNUM, UNSIGNED_BIGNUM, URI,
-};
+#[cfg(feature = "validation")]
+use crate::decode::Decoder;
+use crate::tags::{NEGATIVE_BIGNUM, UNSIGNED_BIGNUM};
+use crate::validate;
 
 /// A tag, major type 6: a number and the item it applies to.
 ///
@@ -81,45 +80,27 @@ impl Tag {
     /// ```
     #[must_use]
     pub fn is_valid(&self) -> bool {
-        let content = self.content();
-        match self.number {
-            DATE_TIME_STRING | URI | BASE64URL | BASE64 | MIME_MESSAGE => content.is_text(),
-            EPOCH_TIME => content.is_integer() || content.is_floating(),
-            UNSIGNED_BIGNUM | NEGATIVE_BIGNUM => content.is_byte(),
-            DECIMAL_FRACTION | BIGFLOAT => content.as_array().is_some_and(|array| {
-                matches!(
-                    array.items(),
-                    [exponent, mantissa] if exponent.is_integer() && is_integer_or_bignum(mantissa)
-                )
-            }),
-            EMBEDDED_ITEM => {
-                content
-                    .as_byte()
-                    .is_some_and(|bytes| well_formed_decoder().decode(&bytes.to_bytes()).is_ok())
-            }
-            EMBEDDED_SEQUENCE => {
-                content.as_byte().is_some_and(|bytes| {
-                    well_formed_decoder()
-                        .sequence(&bytes.to_bytes())
-                        .all(|item| item.is_ok())
-                })
-            }
-            _ => true,
-        }
+        validate::has_valid_type(self)
     }
-}
 
-/// Whether an item is an integer or a valid bignum.
-fn is_integer_or_bignum(item: &DataItem) -> bool {
-    item.is_integer()
-        || item.as_tag().is_some_and(|tag| {
-            (tag.number() == UNSIGNED_BIGNUM || tag.number() == NEGATIVE_BIGNUM) && tag.is_valid()
-        })
-}
-
-/// A decoder that only checks well-formedness (RFC 8949 section 3.4.5.1).
-fn well_formed_decoder() -> Decoder {
-    Decoder::new().duplicate_keys(DuplicateKeyMode::Last)
+    /// Whether the content's value is right too: an RFC 3339 date and time
+    /// (tag 0), a URI reference (32), base64url without or base64 with padding
+    /// (33, 34), and valid `CBOR` for the default [`Decoder`] (24, 63).
+    ///
+    /// # Example
+    /// ```rust
+    /// use cbor_next::{Tag, tags};
+    ///
+    /// assert!(Tag::new(tags::DATE_TIME_STRING, "2013-03-21T20:04:00Z").has_valid_value());
+    /// assert!(!Tag::new(tags::DATE_TIME_STRING, "2013-02-30T20:04:00Z").has_valid_value());
+    /// assert!(!Tag::new(tags::URI, "a b").has_valid_value());
+    /// ```
+    #[must_use]
+    #[cfg(feature = "validation")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "validation")))]
+    pub fn has_valid_value(&self) -> bool {
+        validate::has_valid_value(self, &Decoder::new())
+    }
 }
 
 impl<T> From<(u64, T)> for Tag
