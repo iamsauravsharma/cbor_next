@@ -14,7 +14,7 @@
 <a href=#14 id=14 data-nosnippet>14</a><span class="doccomment">/// Turn a value into a data item.
 <a href=#15 id=15 data-nosnippet>15</a>///
 <a href=#16 id=16 data-nosnippet>16</a>/// # Errors
-<a href=#17 id=17 data-nosnippet>17</a>/// If the value holds data which `CBOR` cannot represent
+<a href=#17 id=17 data-nosnippet>17</a>/// If the value holds something `CBOR` cannot
 <a href=#18 id=18 data-nosnippet>18</a>///
 <a href=#19 id=19 data-nosnippet>19</a>/// # Example
 <a href=#20 id=20 data-nosnippet>20</a>/// ```rust
@@ -36,7 +36,7 @@
 <a href=#36 id=36 data-nosnippet>36</a><span class="doccomment">/// Encode a value as `CBOR` bytes.
 <a href=#37 id=37 data-nosnippet>37</a>///
 <a href=#38 id=38 data-nosnippet>38</a>/// # Errors
-<a href=#39 id=39 data-nosnippet>39</a>/// Under the same conditions as [`to_data_item`]
+<a href=#39 id=39 data-nosnippet>39</a>/// As [`to_data_item`]
 <a href=#40 id=40 data-nosnippet>40</a>///
 <a href=#41 id=41 data-nosnippet>41</a>/// # Example
 <a href=#42 id=42 data-nosnippet>42</a>/// ```rust
@@ -55,7 +55,7 @@
 <a href=#55 id=55 data-nosnippet>55</a>    DataItem::map([(DataItem::from(name), content)])
 <a href=#56 id=56 data-nosnippet>56</a>}
 <a href=#57 id=57 data-nosnippet>57</a>
-<a href=#58 id=58 data-nosnippet>58</a><span class="doccomment">/// Define the methods which turn a value into a data item with `From`.
+<a href=#58 id=58 data-nosnippet>58</a><span class="doccomment">/// Define serialize methods that use `From`.
 <a href=#59 id=59 data-nosnippet>59</a></span><span class="macro">macro_rules!</span> serialize_with_from {
 <a href=#60 id=60 data-nosnippet>60</a>    ($(<span class="macro-nonterminal">$method</span>:ident(<span class="macro-nonterminal">$type</span>:ty)),* $(,)<span class="question-mark">?</span>) =&gt; {
 <a href=#61 id=61 data-nosnippet>61</a>        $(
@@ -234,13 +234,13 @@
 <a href=#234 id=234 data-nosnippet>234</a>    </span>}
 <a href=#235 id=235 data-nosnippet>235</a>}
 <a href=#236 id=236 data-nosnippet>236</a>
-<a href=#237 id=237 data-nosnippet>237</a><span class="doccomment">/// What the elements of a sequence are turned into once it ends.
+<a href=#237 id=237 data-nosnippet>237</a><span class="doccomment">/// What a finished sequence becomes.
 <a href=#238 id=238 data-nosnippet>238</a></span><span class="kw">enum </span>SeqKind {
 <a href=#239 id=239 data-nosnippet>239</a>    <span class="doccomment">/// An array
 <a href=#240 id=240 data-nosnippet>240</a>    </span>Array,
-<a href=#241 id=241 data-nosnippet>241</a>    <span class="doccomment">/// An array under the name of an enum variant
+<a href=#241 id=241 data-nosnippet>241</a>    <span class="doccomment">/// An array under an enum variant name
 <a href=#242 id=242 data-nosnippet>242</a>    </span>Variant(<span class="kw-2">&amp;</span><span class="lifetime">'static </span>str),
-<a href=#243 id=243 data-nosnippet>243</a>    <span class="doccomment">/// A tag, from the number and the content a [`Tagged`] value writes
+<a href=#243 id=243 data-nosnippet>243</a>    <span class="doccomment">/// A tag, from a [`Tagged`] number and content
 <a href=#244 id=244 data-nosnippet>244</a>    ///
 <a href=#245 id=245 data-nosnippet>245</a>    /// [`Tagged`]: super::Tagged
 <a href=#246 id=246 data-nosnippet>246</a>    </span>Tag,
@@ -293,7 +293,7 @@
 <a href=#293 id=293 data-nosnippet>293</a>    }
 <a href=#294 id=294 data-nosnippet>294</a>}
 <a href=#295 id=295 data-nosnippet>295</a>
-<a href=#296 id=296 data-nosnippet>296</a><span class="doccomment">/// Implement the traits whose elements all land in a [`SeqSerializer`].
+<a href=#296 id=296 data-nosnippet>296</a><span class="doccomment">/// Implement the traits backed by a [`SeqSerializer`].
 <a href=#297 id=297 data-nosnippet>297</a></span><span class="macro">macro_rules!</span> impl_serialize_seq {
 <a href=#298 id=298 data-nosnippet>298</a>    ($(<span class="macro-nonterminal">$trait</span>:ident::<span class="macro-nonterminal">$method</span>:ident),* $(,)<span class="question-mark">?</span>) =&gt; {
 <a href=#299 id=299 data-nosnippet>299</a>        $(
@@ -390,29 +390,28 @@
 <a href=#390 id=390 data-nosnippet>390</a>    }
 <a href=#391 id=391 data-nosnippet>391</a>}
 <a href=#392 id=392 data-nosnippet>392</a>
-<a href=#393 id=393 data-nosnippet>393</a><span class="doccomment">/// Implement the traits whose fields all land in a [`MapSerializer`] under
-<a href=#394 id=394 data-nosnippet>394</a>/// their name.
-<a href=#395 id=395 data-nosnippet>395</a></span><span class="macro">macro_rules!</span> impl_serialize_struct {
-<a href=#396 id=396 data-nosnippet>396</a>    ($(<span class="macro-nonterminal">$trait</span>:ident),* $(,)<span class="question-mark">?</span>) =&gt; {
-<a href=#397 id=397 data-nosnippet>397</a>        $(
-<a href=#398 id=398 data-nosnippet>398</a>            <span class="kw">impl </span><span class="macro-nonterminal">$trait </span><span class="kw">for </span>MapSerializer {
-<a href=#399 id=399 data-nosnippet>399</a>                <span class="kw">type </span>Error = Error;
-<a href=#400 id=400 data-nosnippet>400</a>                <span class="kw">type </span><span class="prelude-val">Ok </span>= DataItem;
-<a href=#401 id=401 data-nosnippet>401</a>
-<a href=#402 id=402 data-nosnippet>402</a>                <span class="kw">fn </span>serialize_field&lt;T&gt;(<span class="kw-2">&amp;mut </span><span class="self">self</span>, key: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str, value: <span class="kw-2">&amp;</span>T) -&gt; <span class="prelude-ty">Result</span>&lt;(), Error&gt;
-<a href=#403 id=403 data-nosnippet>403</a>                <span class="kw">where
-<a href=#404 id=404 data-nosnippet>404</a>                    </span>T: Serialize + <span class="question-mark">?</span>Sized,
-<a href=#405 id=405 data-nosnippet>405</a>                {
-<a href=#406 id=406 data-nosnippet>406</a>                    <span class="self">self</span>.insert(DataItem::from(key), value.serialize(ItemSerializer)<span class="question-mark">?</span>)
-<a href=#407 id=407 data-nosnippet>407</a>                }
-<a href=#408 id=408 data-nosnippet>408</a>
-<a href=#409 id=409 data-nosnippet>409</a>                <span class="kw">fn </span>end(<span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;DataItem, Error&gt; {
-<a href=#410 id=410 data-nosnippet>410</a>                    <span class="prelude-val">Ok</span>(<span class="self">self</span>.finish())
-<a href=#411 id=411 data-nosnippet>411</a>                }
-<a href=#412 id=412 data-nosnippet>412</a>            }
-<a href=#413 id=413 data-nosnippet>413</a>        )*
-<a href=#414 id=414 data-nosnippet>414</a>    };
-<a href=#415 id=415 data-nosnippet>415</a>}
-<a href=#416 id=416 data-nosnippet>416</a>
-<a href=#417 id=417 data-nosnippet>417</a><span class="macro">impl_serialize_struct!</span>(SerializeStruct, SerializeStructVariant);
+<a href=#393 id=393 data-nosnippet>393</a><span class="doccomment">/// Implement the traits backed by a [`MapSerializer`], keyed by field name.
+<a href=#394 id=394 data-nosnippet>394</a></span><span class="macro">macro_rules!</span> impl_serialize_struct {
+<a href=#395 id=395 data-nosnippet>395</a>    ($(<span class="macro-nonterminal">$trait</span>:ident),* $(,)<span class="question-mark">?</span>) =&gt; {
+<a href=#396 id=396 data-nosnippet>396</a>        $(
+<a href=#397 id=397 data-nosnippet>397</a>            <span class="kw">impl </span><span class="macro-nonterminal">$trait </span><span class="kw">for </span>MapSerializer {
+<a href=#398 id=398 data-nosnippet>398</a>                <span class="kw">type </span>Error = Error;
+<a href=#399 id=399 data-nosnippet>399</a>                <span class="kw">type </span><span class="prelude-val">Ok </span>= DataItem;
+<a href=#400 id=400 data-nosnippet>400</a>
+<a href=#401 id=401 data-nosnippet>401</a>                <span class="kw">fn </span>serialize_field&lt;T&gt;(<span class="kw-2">&amp;mut </span><span class="self">self</span>, key: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str, value: <span class="kw-2">&amp;</span>T) -&gt; <span class="prelude-ty">Result</span>&lt;(), Error&gt;
+<a href=#402 id=402 data-nosnippet>402</a>                <span class="kw">where
+<a href=#403 id=403 data-nosnippet>403</a>                    </span>T: Serialize + <span class="question-mark">?</span>Sized,
+<a href=#404 id=404 data-nosnippet>404</a>                {
+<a href=#405 id=405 data-nosnippet>405</a>                    <span class="self">self</span>.insert(DataItem::from(key), value.serialize(ItemSerializer)<span class="question-mark">?</span>)
+<a href=#406 id=406 data-nosnippet>406</a>                }
+<a href=#407 id=407 data-nosnippet>407</a>
+<a href=#408 id=408 data-nosnippet>408</a>                <span class="kw">fn </span>end(<span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;DataItem, Error&gt; {
+<a href=#409 id=409 data-nosnippet>409</a>                    <span class="prelude-val">Ok</span>(<span class="self">self</span>.finish())
+<a href=#410 id=410 data-nosnippet>410</a>                }
+<a href=#411 id=411 data-nosnippet>411</a>            }
+<a href=#412 id=412 data-nosnippet>412</a>        )*
+<a href=#413 id=413 data-nosnippet>413</a>    };
+<a href=#414 id=414 data-nosnippet>414</a>}
+<a href=#415 id=415 data-nosnippet>415</a>
+<a href=#416 id=416 data-nosnippet>416</a><span class="macro">impl_serialize_struct!</span>(SerializeStruct, SerializeStructVariant);
 </code></pre></div></section></main></body></html>
