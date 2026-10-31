@@ -30,7 +30,7 @@ fn nesting_depth_is_configurable() {
 }
 
 #[test]
-fn duplicate_keys_have_three_modes() {
+fn duplicate_key_modes() {
     use crate::decode::DuplicateKeyMode;
 
     // {1: 2, 1: 3, 1: 4}
@@ -59,7 +59,12 @@ fn duplicate_keys_have_three_modes() {
             .unwrap(),
         DataItem::map([(1, 4)])
     );
-    // the mode reaches nested maps and indefinite length maps
+    // indefinite length maps are checked too
+    assert_eq!(
+        DataItem::decode(&hex_bytes("bf01020103ff")),
+        Err(Error::DuplicateMapKey(Box::new(DataItem::from(1))))
+    );
+    // the mode reaches nested maps
     let nested = hex_bytes("a1 00 bf 01 02 01 03 ff".replace(' ', "").as_str());
     assert_eq!(
         Decoder::new()

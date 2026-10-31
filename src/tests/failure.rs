@@ -113,16 +113,8 @@ fn invalid_simple() {
 }
 
 #[test]
-fn trailing_and_duplicate() {
+fn trailing_bytes() {
     failure_compare("0001", Error::TrailingBytes { count: 1 });
-    failure_compare(
-        "a201020103",
-        Error::DuplicateMapKey(Box::new(DataItem::from(1))),
-    );
-    failure_compare(
-        "bf01020103ff",
-        Error::DuplicateMapKey(Box::new(DataItem::from(1))),
-    );
 }
 
 #[test]
