@@ -13,10 +13,8 @@ use crate::content::{Array, Map, Simple};
 use crate::data_item::DataItem;
 use crate::data_item::convert::f32_to_f64;
 
-/// A data item is written as the value it holds. A tag, `undefined` and a
-/// simple value are written the way [`Tagged`], [`Undefined`] and
-/// [`Simple`] are, so they stay what they are through this crate and fall
-/// back to a plain structure through another format.
+/// Writes the value held; tags, `undefined` and simple values go as
+/// [`Tagged`], [`Undefined`] and [`Simple`] do.
 impl Serialize for DataItem {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -58,16 +56,14 @@ impl Serialize for DataItem {
     }
 }
 
-/// A data item is read from any value. Read from a data item, it is the same
-/// data item, tags included.
+/// Reads from any value; from this crate it round trips exactly.
 impl<'de> Deserialize<'de> for DataItem {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        // the deserializer of this crate recognizes the name and hands over an
-        // item serde has no counterpart for as a variant, any other one
-        // treats it as a plain newtype
+        // our deserializer passes items serde lacks as a variant; others see
+        // a plain newtype
         deserializer.deserialize_newtype_struct(DATA_ITEM_NAME, ItemVisitor)
     }
 }
@@ -181,8 +177,7 @@ impl<'de> Visitor<'de> for ItemVisitor {
         Ok(DataItem::Map(Map::from(entries)))
     }
 
-    /// An item serde has no counterpart for, handed over by the deserializer
-    /// of this crate.
+    /// An item serde lacks, passed by our deserializer.
     fn visit_enum<A>(self, access: A) -> Result<DataItem, A::Error>
     where
         A: EnumAccess<'de>,

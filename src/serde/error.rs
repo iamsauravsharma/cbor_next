@@ -1,20 +1,15 @@
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
-/// Error returned when converting between Rust values and data items.
+/// A serde conversion error.
 #[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Error {
-    /// A message raised by serde or by a `Serialize` or `Deserialize`
-    /// implementation.
+    /// A custom message from serde or an implementation.
     Message(String),
-    /// Data which the other side cannot represent.
-    ///
-    /// It is rejected as it is, never changed to fit: a tag which nothing
-    /// asked for, `undefined` or a simple value in place of another type, a
-    /// bignum wider than 128 bits and a map which uses a key twice are all
-    /// refused.
+    /// Data the other side cannot hold, such as an unexpected tag, a bignum
+    /// past 128 bits or a repeated map key.
     Unsupported(String),
-    /// Bytes which are not a well formed data item.
+    /// The bytes failed to decode.
     Cbor(crate::Error),
 }
 

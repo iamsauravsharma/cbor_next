@@ -1,11 +1,8 @@
-//! Turning `CBOR` bytes into data items.
+//! Decoding `CBOR` bytes into data items.
 //!
-//! [`DataItem::decode`] uses the default settings of [`Decoder`], which accept
-//! any well formed data item that does not nest deeper than
-//! [`Decoder::DEFAULT_MAX_NESTING_DEPTH`] and does not repeat a map key. A
-//! [`Decoder`] built by hand can tighten or relax those limits, cap the number
-//! of items with [`Decoder::max_items`] and require a deterministic form, which
-//! is how untrusted input is kept to the profile an application expects.
+//! The default [`Decoder`] accepts any well formed item without repeated map
+//! keys, nested up to [`Decoder::DEFAULT_MAX_NESTING_DEPTH`]. Tighten it for
+//! untrusted input.
 
 use indexmap::IndexMap;
 use indexmap::map::Entry;
@@ -20,11 +17,10 @@ use crate::error::Error;
 /// Byte which closes an indefinite length item.
 const BREAK: u8 = 0xFF;
 
-/// What a decoder does with a map which uses the same key more than once.
+/// What to do with a repeated map key (RFC 8949 section 5.6).
 ///
-/// These are the three behaviours RFC 8949 section 5.6 lists for a generic
-/// decoder. Keys are compared as in section 5.6.1: `1` and `1.0` differ,
-/// `0.0` and `-0.0` match, and strings, arrays and maps match by content.
+/// Keys compare as in section 5.6.1: `1 != 1.0`, `0.0 == -0.0`, and
+/// containers compare by content.
 ///
 /// # Example
 /// ```rust
@@ -54,17 +50,16 @@ const BREAK: u8 = 0xFF;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[non_exhaustive]
 pub enum DuplicateKeyMode {
-    /// Reject the map with [`Error::DuplicateMapKey`], as RFC 8949 calls such
-    /// a map invalid.
+    /// Fail with [`Error::DuplicateMapKey`].
     #[default]
     Reject,
-    /// Keep the value of the first occurrence of the key.
+    /// Keep the first value.
     First,
-    /// Keep the value of the last occurrence of the key.
+    /// Keep the last value.
     Last,
 }
 
-/// Data items of a sequence, decoded one at a time by [`Decoder::sequence`].
+/// Iterator over a sequence, from [`Decoder::sequence`].
 #[derive(Debug)]
 pub struct Sequence<'a> {
     decoder: &'a Decoder,
@@ -135,10 +130,7 @@ impl Default for Decoder {
 }
 
 impl Decoder {
-    /// Nesting depth a decoder accepts unless it is told otherwise.
-    ///
-    /// Bounding the depth keeps recursion on maliciously nested input from
-    /// overflowing the stack.
+    /// Default nesting limit; it guards the stack against deep input.
     pub const DEFAULT_MAX_NESTING_DEPTH: usize = 128;
 
     /// Create a decoder with the default limits.
@@ -147,22 +139,18 @@ impl Decoder {
         Self::default()
     }
 
-    /// Set how deeply data items may nest before decoding fails.
+    /// Set the nesting limit.
     #[must_use]
     pub fn max_nesting_depth(mut self, depth: usize) -> Self {
         self.max_nesting_depth = depth;
         self
     }
 
-    /// Set how many data items may be decoded in total before decoding fails.
+    /// Limit the total number of items, including map keys, tag contents and
+    /// string chunks; a sequence shares one limit.
     ///
-    /// Every item counts: array elements, map keys and values, tag content and
-    /// each chunk of an indefinite length string. A sequence decoded with
-    /// [`Decoder::decode_sequence`] shares one limit.
-    ///
-    /// A data item takes far more memory than the one byte which can encode it,
-    /// so a short input can otherwise ask for a very large allocation. The
-    /// limit is not set by default, so set one when decoding untrusted input.
+    /// Unset by default. Set it for untrusted input, since one byte can ask
+    /// for a large allocation.
     ///
     /// # Example
     /// ```rust
@@ -185,34 +173,22 @@ impl Decoder {
         self
     }
 
-    /// Set what is done with a map which uses the same key more than once.
-    ///
-    /// RFC 8949 calls such a map invalid, so it is rejected by default. See
-    /// [`DuplicateKeyMode`] for the choices and for how keys are compared.
+    /// Set how repeated map keys are handled; rejected by default.
     #[must_use]
     pub fn duplicate_keys(mut self, mode: DuplicateKeyMode) -> Self {
         self.duplicate_keys = mode;
         self
     }
 
-    /// Accept indefinite length strings, arrays and maps.
-    ///
-    /// Turning this off restricts input to the length form used by every
-    /// deterministic profile.
+    /// Whether indefinite length strings, arrays and maps are accepted.
     #[must_use]
     pub fn allow_indefinite(mut self, allow: bool) -> Self {
         self.allow_indefinite = allow;
         self
     }
 
-    /// Reject input which is not already in the deterministic form of the
-    /// provided mode.
-    ///
-    /// This is the check an application needs when a value is going to be
-    /// compared, hashed or signed in its encoded form. Besides the order of
-    /// map keys and the length form, it requires the shortest encoding of
-    /// integers, lengths, tag numbers and floating point numbers, so `18 05`
-    /// is rejected where `05` is accepted.
+    /// Reject input not already deterministic in the mode, including heads
+    /// and floats wider than needed (`18 05` for `5`).
     ///
     /// # Example
     /// ```rust
@@ -231,11 +207,10 @@ impl Decoder {
         self
     }
 
-    /// Decode exactly one data item from the provided bytes.
+    /// Decode exactly one item.
     ///
     /// # Errors
-    /// If the bytes are not a well formed data item, if they break one of the
-    /// limits of the decoder, or if bytes remain once the item is complete
+    /// If the item is malformed, breaks a limit, or bytes remain after it
     pub fn decode(&self, bytes: &[u8]) -> Result<DataItem, Error> {
         let (item, rest) = self.decode_partial(bytes)?;
         if !rest.is_empty() {
@@ -244,12 +219,10 @@ impl Decoder {
         Ok(item)
     }
 
-    /// Decode the first data item of the provided bytes and return it along
-    /// with the bytes which follow it.
+    /// Decode the first item and return it with the remaining bytes.
     ///
     /// # Errors
-    /// If the leading bytes are not a well formed data item or if they break
-    /// one of the limits of the decoder
+    /// If the item is malformed or breaks a limit
     pub fn decode_partial<'a>(&self, bytes: &'a [u8]) -> Result<(DataItem, &'a [u8]), Error> {
         let mut reader = Reader::new(bytes, self.max_items);
         let item = self.read_item(&mut reader, self.max_nesting_depth)?;
@@ -257,21 +230,18 @@ impl Decoder {
         Ok((item, reader.rest()))
     }
 
-    /// Decode every data item of a sequence of concatenated data items, the
-    /// form described by RFC 8742.
+    /// Decode a whole sequence (RFC 8742).
     ///
     /// # Errors
-    /// If any item of the sequence is not a well formed data item or if it
-    /// breaks one of the limits of the decoder
+    /// If any item is malformed or breaks a limit
     pub fn decode_sequence(&self, bytes: &[u8]) -> Result<Vec<DataItem>, Error> {
         self.sequence(bytes).collect()
     }
 
     /// Decode a sequence one data item at a time.
     ///
-    /// Unlike [`Decoder::decode_sequence`], the items before a bad or truncated
-    /// one are still delivered. The iterator stops after the first error, as
-    /// the rest of a sequence cannot be told apart once an item is broken.
+    /// Items before a bad one are still yielded; iteration stops at the first
+    /// error.
     ///
     /// # Example
     /// ```rust
@@ -349,8 +319,7 @@ impl Decoder {
         }
     }
 
-    /// Read a byte string, which a text string is also read as before it is
-    /// checked for being valid UTF-8.
+    /// Read a byte string; text is read this way, then checked as UTF-8.
     fn read_string(
         &self,
         major_type: u8,
@@ -474,8 +443,7 @@ impl Decoder {
         }
     }
 
-    /// Read the length of a string, an array or a map, where `None` stands for
-    /// the indefinite length form.
+    /// Read a length; `None` means indefinite.
     fn read_length(
         &self,
         major_type: u8,
@@ -491,10 +459,7 @@ impl Decoder {
         self.read_argument(major_type, additional, reader).map(Some)
     }
 
-    /// Read the argument of a head.
-    ///
-    /// With a deterministic form required, a wider than needed form such as
-    /// `18 05` for `5` is rejected.
+    /// Read a head argument, rejecting a wide form when deterministic.
     fn read_argument(
         &self,
         major_type: u8,
@@ -570,8 +535,7 @@ impl Decoder {
         }
     }
 
-    /// Build a float item. With a deterministic form required, a width that
-    /// is not the shortest is rejected.
+    /// Build a float, rejecting a wide form when deterministic.
     fn float_item(&self, number: f64, additional: u8) -> Result<DataItem, Error> {
         if self.require_deterministic.is_some() && shortest_float_additional(number) != additional {
             return Err(Error::NotDeterministic);
@@ -580,14 +544,10 @@ impl Decoder {
     }
 }
 
-/// Capacity to reserve for a collection whose head announces `count` entries.
-///
-/// The announced count is not trusted on its own, since a short input may claim
-/// a huge collection, so it is capped both by the number of entries the
-/// remaining bytes could possibly hold and by a fixed ceiling. Growing past the
-/// ceiling is left to the reallocation the collection does on its own.
+/// Capacity to reserve for `count` announced entries, capped by the remaining
+/// bytes and a fixed ceiling, since the input may lie.
 fn bounded_capacity(count: u64, reader: &Reader<'_>) -> usize {
-    /// Highest number of entries which is reserved up front
+    /// Most entries reserved up front
     const MAX_PREALLOCATED: usize = 1024;
     let possible = reader.remaining();
     usize::try_from(count)
@@ -615,7 +575,7 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// Count one more data item, failing once the limit would be passed.
+    /// Count one more item, failing past the limit.
     fn count_item(&mut self) -> Result<(), Error> {
         if self.items >= self.max_items {
             return Err(Error::ItemLimit {
@@ -652,8 +612,7 @@ impl<'a> Reader<'a> {
         Ok(byte)
     }
 
-    /// Read a run of bytes whose length was announced by the input, which may
-    /// be far longer than the input itself.
+    /// Read bytes of a length the input announced (it may lie).
     fn read_slice(&mut self, length: u64) -> Result<&'a [u8], Error> {
         let remaining = u64::try_from(self.remaining()).unwrap_or(u64::MAX);
         if length > remaining {
@@ -665,7 +624,7 @@ impl<'a> Reader<'a> {
         self.take(length)
     }
 
-    /// Read a run of bytes of a length which is known to the decoder itself.
+    /// Read bytes of a length the decoder knows.
     fn take(&mut self, length: usize) -> Result<&'a [u8], Error> {
         let remaining = self.remaining();
         if length > remaining {

@@ -2,75 +2,63 @@ use std::string::FromUtf8Error;
 
 use crate::data_item::DataItem;
 
-/// Error returned when a byte sequence cannot be decoded as `CBOR`.
+/// A decoding error.
 #[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Error {
-    /// Input ended in the middle of a data item.
-    ///
-    /// `missing` is how many further bytes the item being decoded asked for.
+    /// Input ended inside an item.
     UnexpectedEnd {
-        /// Number of bytes the truncated data item is short of.
+        /// Bytes still needed.
         missing: u64,
     },
-    /// Input ended before the break which closes an indefinite length item.
+    /// Input ended before the break of an indefinite length item.
     IncompleteIndefinite,
     /// A text string chunk is not valid UTF-8.
     InvalidUtf8(FromUtf8Error),
-    /// The additional information of a head is not allowed for its major type.
-    ///
-    /// The values 28 to 30 are reserved for every major type, and 31, the
-    /// indefinite length marker, is only allowed for major types 2 to 5.
+    /// Additional information 28 to 30, or 31 outside major types 2 to 5.
     InvalidAdditionalInfo {
-        /// Major type of the head which carried the additional information.
+        /// Major type of the head.
         major_type: u8,
-        /// Additional information found in the head.
+        /// Additional information found.
         additional: u8,
     },
-    /// A chunk of an indefinite length string has the wrong major type.
-    ///
-    /// Every chunk of an indefinite length byte or text string must repeat the
-    /// major type of the string it belongs to.
+    /// A string chunk's major type differs from its string's.
     InvalidChunkMajorType {
-        /// Major type of the enclosing indefinite length string.
+        /// Major type of the string.
         expected: u8,
-        /// Major type found on the chunk.
+        /// Major type of the chunk.
         found: u8,
     },
-    /// A simple value uses a number which RFC 8949 assigns or reserves.
+    /// A simple value of 20 to 31, or below 32 in the two byte form.
     InvalidSimpleValue(u8),
-    /// A break appeared where no indefinite length item was open.
+    /// A break outside an indefinite length item.
     UnexpectedBreak,
-    /// The same key appeared more than once in a map.
-    ///
-    /// Decoding with [`Decoder::duplicate_keys`] set to a mode which keeps
-    /// the first or the last value accepts such a map instead.
+    /// A map repeats a key; see [`Decoder::duplicate_keys`].
     ///
     /// [`Decoder::duplicate_keys`]: crate::Decoder::duplicate_keys
     DuplicateMapKey(Box<DataItem>),
-    /// An indefinite length item appeared while indefinite lengths were
-    /// rejected by [`Decoder::allow_indefinite`].
+    /// An indefinite length item, disallowed by
+    /// [`Decoder::allow_indefinite`].
     ///
     /// [`Decoder::allow_indefinite`]: crate::Decoder::allow_indefinite
     IndefiniteNotAllowed,
-    /// A well formed item was decoded but it is not in the deterministic form
-    /// demanded by [`Decoder::require_deterministic`].
+    /// Not deterministic, as [`Decoder::require_deterministic`] asks.
     ///
     /// [`Decoder::require_deterministic`]: crate::Decoder::require_deterministic
     NotDeterministic,
-    /// Nesting of a data item went past the configured maximum depth.
+    /// Nesting is deeper than the limit.
     RecursionLimit {
-        /// Maximum nesting depth which was applied.
+        /// The limit.
         limit: usize,
     },
-    /// More data items were decoded than [`Decoder::max_items`] allows.
+    /// More items than [`Decoder::max_items`] allows.
     ///
     /// [`Decoder::max_items`]: crate::Decoder::max_items
     ItemLimit {
-        /// Maximum number of data items which was applied.
+        /// The limit.
         limit: usize,
     },
-    /// Bytes remain after a complete data item was decoded.
+    /// Bytes remain after the item.
     TrailingBytes {
         /// Number of bytes left over.
         count: usize,

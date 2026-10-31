@@ -1,9 +1,7 @@
-//! Types which carry the data items serde has no counterpart for.
+//! Wrappers for items serde lacks.
 //!
-//! Each one serializes as a struct with a name reserved by this crate. The
-//! serializer and deserializer of this crate recognize the name and keep the
-//! data item as it is, while any other format sees the plain structure the
-//! wrapper falls back to.
+//! Each is a struct with a reserved name: this crate keeps the item, other
+//! formats see a plain structure.
 
 use std::fmt::{Formatter, Result as FmtResult};
 use std::marker::PhantomData;
@@ -14,19 +12,16 @@ use ::serde::ser::{Serialize, SerializeTupleStruct as _, Serializer};
 use crate::content::{Simple, Tag};
 use crate::data_item::DataItem;
 
-/// Name of the tuple struct a [`Tagged`] value is written as
+/// Struct name for [`Tagged`]
 pub(super) const TAG_NAME: &str = "$cbor_next::private::Tag";
-/// Name of the unit struct [`Undefined`] is written as
+/// Struct name for [`Undefined`]
 pub(super) const UNDEFINED_NAME: &str = "$cbor_next::private::Undefined";
-/// Name of the newtype struct a [`Simple`] value is written as
+/// Struct name for [`Simple`]
 pub(super) const SIMPLE_NAME: &str = "$cbor_next::private::Simple";
-/// Name of the newtype struct a [`DataItem`] asks to be read as
+/// Struct name a [`DataItem`] is read as
 pub(super) const DATA_ITEM_NAME: &str = "$cbor_next::private::DataItem";
 
-/// A tag, `CBOR` major type 6, around any value.
-///
-/// Through another format it is a two element sequence of the tag number and
-/// the content.
+/// A tag around any value; elsewhere a `(number, content)` pair.
 ///
 /// # Example
 /// ```rust
@@ -47,9 +42,9 @@ pub(super) const DATA_ITEM_NAME: &str = "$cbor_next::private::DataItem";
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Tagged<T> {
-    /// The number of the tag
+    /// The tag number
     pub number: u64,
-    /// The item the tag applies to
+    /// The tagged value
     pub content: T,
 }
 
@@ -106,11 +101,8 @@ where
     }
 }
 
-/// A tag of a fixed number around any value.
-///
-/// Reading a tag of any other number fails, which is what a protocol that
-/// requires a particular tag in a particular place needs. It is written and
-/// read exactly like [`Tagged`].
+/// A tag of a fixed number; reading another number fails. Otherwise like
+/// [`Tagged`].
 ///
 /// # Example
 /// ```rust
@@ -160,9 +152,7 @@ where
     }
 }
 
-/// The `undefined` simple value.
-///
-/// Through another format it is a unit, so `null` in JSON.
+/// `undefined`; elsewhere a unit (`null` in JSON).
 ///
 /// # Example
 /// ```rust
@@ -208,8 +198,7 @@ impl Visitor<'_> for UndefinedVisitor {
     }
 }
 
-/// A simple value is written as a newtype struct around its number, so it is
-/// a plain number through another format.
+/// A newtype around its number; elsewhere a plain number.
 ///
 /// # Example
 /// ```rust
@@ -265,7 +254,7 @@ impl<'de> Visitor<'de> for SimpleVisitor {
     }
 }
 
-/// The content of a tag is written as a [`Tagged`] data item.
+/// Serialized as [`Tagged`].
 impl Serialize for Tag {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

@@ -1,18 +1,10 @@
-//! The tags registered by RFC 8949 and RFC 8742 which carry a value through
-//! serde.
+//! Serde types for tags registered by RFC 8949 and RFC 8742.
 //!
-//! Each one is written and read as a [`TaggedWith`] of the number in
-//! [`crate::tags`] around the content type the registry requires, so
-//! the tag number is checked when reading. [`Embedded`] and
-//! [`EmbeddedSequence`] go further and encode or decode the `CBOR` their byte
-//! string holds.
+//! Each is a [`TaggedWith`] of its number, so reading checks the number.
+//! [`Embedded`] and [`EmbeddedSequence`] also encode and decode their bytes.
 //!
-//! Bignums, tags 2 and 3, need no type: an `i128` or `u128` outside the range
-//! of a major type 0 or 1 item is written as one, and one is read as such.
-//! Tags 21 to 23 only advise a converter to JSON on how to write a byte
-//! string, and tags 4 and 5 are a pair of an exponent and a mantissa, which
-//! `TaggedWith<4, (i64, i128)>` carries; a [`Tagged`](super::Tagged) keeps
-//! any of them as it is.
+//! Bignums need no type (`i128`/`u128`). For tags 4 and 5 use
+//! `TaggedWith<4, (i64, i128)>`; [`Tagged`](super::Tagged) keeps any tag.
 
 use std::fmt::{Formatter, Result as FmtResult};
 
@@ -27,8 +19,7 @@ use crate::decode::Decoder;
 use crate::encode::Encoder;
 use crate::tags;
 
-/// Define a newtype which is written and read as a [`TaggedWith`] of a
-/// registered number.
+/// Define a newtype over a [`TaggedWith`] of a registered number.
 macro_rules! registered_tag {
     ($(#[$meta:meta])* $name:ident<$content:ident> = $number:expr) => {
         $(#[$meta])*
@@ -87,7 +78,7 @@ macro_rules! registered_tag {
 }
 
 registered_tag! {
-    /// Tag 0, a date and time as the text string of RFC 3339.
+    /// Tag 0, an RFC 3339 date and time text.
     ///
     /// # Example
     /// ```rust
@@ -101,10 +92,7 @@ registered_tag! {
 }
 
 registered_tag! {
-    /// Tag 1, a date and time as the seconds since the epoch.
-    ///
-    /// The registry allows an integer or a float as the content, so the type
-    /// is chosen by the content: `EpochTime<i64>` or `EpochTime<f64>`.
+    /// Tag 1, seconds since the epoch: `EpochTime<i64>` or `EpochTime<f64>`.
     ///
     /// # Example
     /// ```rust
@@ -120,28 +108,27 @@ registered_tag! {
 }
 
 registered_tag! {
-    /// Tag 32, a URI as a text string.
+    /// Tag 32, URI text.
     Uri(String) = tags::URI
 }
 
 registered_tag! {
-    /// Tag 33, a byte string written in base64url as a text string.
+    /// Tag 33, base64url text.
     Base64Url(String) = tags::BASE64URL
 }
 
 registered_tag! {
-    /// Tag 34, a byte string written in base64 as a text string.
+    /// Tag 34, base64 text.
     Base64(String) = tags::BASE64
 }
 
 registered_tag! {
-    /// Tag 36, a MIME message as a text string.
+    /// Tag 36, MIME message text.
     MimeMessage(String) = tags::MIME_MESSAGE
 }
 
 registered_tag! {
-    /// Tag 55799, which marks its content as `CBOR` to anything which reads
-    /// the leading bytes `d9 d9 f7`.
+    /// Tag 55799, self-described `CBOR` (leading bytes `d9 d9 f7`).
     ///
     /// # Example
     /// ```rust
@@ -157,10 +144,7 @@ registered_tag! {
 
 /// Tag 24, a value encoded as `CBOR` inside a byte string.
 ///
-/// The value is encoded when written and decoded when read, so it stays an
-/// opaque byte string for anything in between. The content is decoded with
-/// the default [`Decoder`], and a byte string which is not a well formed data
-/// item is rejected, as RFC 8949 section 3.4.5.1 requires.
+/// Read with the default [`Decoder`]; malformed bytes are rejected.
 ///
 /// # Example
 /// ```rust
@@ -205,12 +189,8 @@ where
     }
 }
 
-/// Tag 63, a sequence of values encoded as `CBOR` inside a byte string, the
-/// form of RFC 8742.
-///
-/// The number is registered with IANA against RFC 8742, which does not define
-/// it in its text. It is written and read like [`Embedded`], the values one
-/// after the other with nothing in between.
+/// Tag 63, a sequence (RFC 8742) encoded inside a byte string, like
+/// [`Embedded`].
 ///
 /// # Example
 /// ```rust
@@ -263,7 +243,7 @@ where
     }
 }
 
-/// Bytes written as a byte string rather than as a sequence of numbers.
+/// Bytes serialized as a byte string, not a sequence of numbers.
 struct Bytes<'a>(&'a [u8]);
 
 impl Serialize for Bytes<'_> {
@@ -275,8 +255,7 @@ impl Serialize for Bytes<'_> {
     }
 }
 
-/// Bytes read from a byte string, or from the sequence of numbers a format
-/// without byte strings writes one as.
+/// Bytes read from a byte string or a sequence of numbers.
 struct ByteBuf(Vec<u8>);
 
 impl<'de> Deserialize<'de> for ByteBuf {

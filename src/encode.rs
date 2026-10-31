@@ -1,43 +1,32 @@
-//! Turning data items into `CBOR` bytes.
+//! Encoding data items into `CBOR` bytes.
 //!
-//! [`DataItem::encode`] uses the default settings of [`Encoder`], which keep
-//! every item as it is held, writing numbers in their shortest form. An
-//! [`Encoder`] built by hand can instead normalize what it writes, for example
-//! to emit the deterministic form of a value without first rewriting the value
-//! itself.
+//! The default [`Encoder`] writes items as held, numbers in their shortest
+//! form. Configure it to normalize output, such as deterministic encoding.
 
 use crate::data_item::DataItem;
 use crate::deterministic::DeterministicMode;
 
-/// Length form used for byte strings, text strings, arrays and maps.
+/// Length form for strings, arrays and maps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum LengthMode {
-    /// Write each item with the length form it carries.
+    /// Keep each item's own length form and chunks.
     ///
-    /// A decoded string, array or map therefore keeps the definite or the
-    /// indefinite form, and the chunks, it was read with. The width of heads
-    /// and floating point numbers is not remembered: integers, lengths, tag
-    /// numbers and floats are always written in their shortest form, so input
-    /// written wider, such as `18 05` for `5`, encodes back to `05`.
+    /// Heads and floats are still shortest, so `18 05` re-encodes as `05`.
     #[default]
     Preserve,
-    /// Write every item with a definite length.
-    ///
-    /// Chunks of an indefinite length string are joined into a single run of
-    /// bytes.
+    /// Definite lengths only; string chunks are joined.
     Definite,
 }
 
-/// Width used for floating point numbers.
+/// Float width.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum FloatMode {
-    /// Write each number in the shortest width which preserves its value, the
-    /// preferred serialization of RFC 8949.
+    /// Shortest width that keeps the value (RFC 8949 preferred serialization).
     #[default]
     Shortest,
-    /// Write every number as a 64 bit double.
+    /// Always 64 bit.
     Double,
 }
 
@@ -71,39 +60,36 @@ pub struct Encoder {
 }
 
 impl Encoder {
-    /// Create an encoder which writes every item exactly as it is held.
+    /// Create an encoder that writes items as held.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Write the deterministic form of every item in the provided mode.
+    /// Write deterministic output in the mode, overriding other settings.
     ///
-    /// Map keys are sorted, definite lengths are used throughout and floating
-    /// point numbers use their shortest width, whatever the other settings
-    /// say. The value being encoded is left untouched, unlike
-    /// [`DataItem::into_deterministic`].
+    /// Unlike [`DataItem::into_deterministic`], the value is not changed.
     #[must_use]
     pub fn deterministic(mut self, mode: DeterministicMode) -> Self {
         self.deterministic = Some(mode);
         self
     }
 
-    /// Select the length form to write items with.
+    /// Set the length form.
     #[must_use]
     pub fn length(mut self, mode: LengthMode) -> Self {
         self.length = mode;
         self
     }
 
-    /// Select the width to write floating point numbers with.
+    /// Set the float width.
     #[must_use]
     pub fn float(mut self, mode: FloatMode) -> Self {
         self.float = mode;
         self
     }
 
-    /// Encode one data item.
+    /// Encode one item.
     #[must_use]
     pub fn encode(&self, item: &DataItem) -> Vec<u8> {
         let mut buffer = vec![];
@@ -111,13 +97,12 @@ impl Encoder {
         buffer
     }
 
-    /// Append one encoded data item to an existing buffer.
+    /// Encode one item into a buffer.
     pub fn encode_into(&self, item: &DataItem, buffer: &mut Vec<u8>) {
         self.write_item(item, buffer);
     }
 
-    /// Encode a sequence of data items into the concatenated form described by
-    /// RFC 8742.
+    /// Encode a sequence (RFC 8742).
     ///
     /// # Example
     /// ```rust
@@ -136,7 +121,7 @@ impl Encoder {
         buffer
     }
 
-    /// Append a sequence of encoded data items to an existing buffer.
+    /// Encode a sequence into a buffer.
     pub fn encode_sequence_into<'a, I>(&self, items: I, buffer: &mut Vec<u8>)
     where
         I: IntoIterator<Item = &'a DataItem>,
@@ -243,8 +228,7 @@ impl Encoder {
         }
     }
 
-    /// Write the chunks of a byte or text string without joining them into an
-    /// intermediate allocation.
+    /// Write string chunks without joining them first.
     fn write_chunks<T>(
         &self,
         buffer: &mut Vec<u8>,
@@ -278,13 +262,12 @@ impl Encoder {
 /// Byte which closes an indefinite length item.
 const BREAK: u8 = 0xFF;
 
-/// Length or count of an in memory collection as the `u64` a `CBOR` head needs.
+/// A length as the `u64` a head needs.
 fn count_of(length: usize) -> u64 {
     u64::try_from(length).expect("in memory length fits in u64")
 }
 
-/// Write the head of a data item, using the shortest form which fits the
-/// argument as RFC 8949 prefers.
+/// Write a head in its shortest form.
 fn write_head(buffer: &mut Vec<u8>, major_type: u8, argument: u64) {
     let shifted_major_type = major_type << 5;
     if let Ok(u8_value) = u8::try_from(argument) {

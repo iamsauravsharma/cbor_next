@@ -12,16 +12,14 @@ mod private {
     impl Sealed for &'_ str {}
 }
 
-/// Trait which is used to get a data item out of a data item.
+/// Look up an item in an array by position or in a map by key.
 ///
-/// An array is indexed by position, a map by key. A key is given either as a
-/// [`DataItem`] or, for the common case of a text key, as a string slice.
+/// A key is a [`DataItem`] or, for text keys, a `&str`.
 pub trait Get<Idx>
 where
     Idx: Sealed,
 {
-    /// Get the item stored at the index, or `None` when the index is absent or
-    /// the item is neither an array nor a map.
+    /// The item at the index, or `None` if absent or not an array or map.
     ///
     /// # Example
     /// ```rust
@@ -38,7 +36,7 @@ where
     /// ```
     fn get(&self, idx: Idx) -> Option<&Self>;
 
-    /// Get the item stored at the index mutably.
+    /// The item at the index, mutably.
     ///
     /// # Example
     /// ```rust

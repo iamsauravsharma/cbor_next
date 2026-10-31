@@ -3,14 +3,9 @@ use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter, Result as FmtResult, Write as _};
 use std::hash::{Hash, Hasher};
 
-/// Content of a byte string, `CBOR` major type 2.
+/// A byte string, major type 2.
 ///
-/// A byte string is either definite, in which case it is encoded as a single
-/// run of bytes, or indefinite, in which case it is encoded as a sequence of
-/// definite chunks terminated by a break. The chunk boundaries are preserved
-/// so that a decoded item re-encodes to the exact same bytes, and they are
-/// reached through [`chunks`](ByteString::chunks) and its mutable and owning
-/// counterparts.
+/// Definite, or indefinite with its chunks kept so it re-encodes the same.
 ///
 /// # Example
 /// ```rust
@@ -26,7 +21,7 @@ use std::hash::{Hash, Hasher};
 /// assert_eq!(indefinite.to_bytes(), [0x01, 0x02]);
 /// ```
 ///
-/// Byte strings are equal when their bytes are, whatever their chunks.
+/// Equality compares bytes only, not chunks.
 #[derive(Default, Clone)]
 pub struct ByteString {
     is_indefinite: bool,
@@ -34,7 +29,7 @@ pub struct ByteString {
 }
 
 impl ByteString {
-    /// Create a definite length byte string from a single run of bytes.
+    /// Create a definite length byte string.
     #[must_use]
     pub fn new(bytes: impl Into<Vec<u8>>) -> Self {
         Self {
@@ -43,7 +38,7 @@ impl ByteString {
         }
     }
 
-    /// Create an indefinite length byte string from its chunks.
+    /// Create an indefinite length byte string from chunks.
     #[must_use]
     pub fn from_chunks<I, B>(chunks: I) -> Self
     where
@@ -56,8 +51,7 @@ impl ByteString {
         }
     }
 
-    /// Return the same content with the definite or indefinite encoding
-    /// selected.
+    /// Set the length form, builder style.
     ///
     /// # Example
     /// ```rust
@@ -72,50 +66,48 @@ impl ByteString {
         self
     }
 
-    /// Select the definite or indefinite encoding in place.
+    /// Set the length form.
     pub fn set_indefinite(&mut self, indefinite: bool) {
         self.is_indefinite = indefinite;
     }
 
-    /// Whether the byte string uses the indefinite length encoding.
+    /// Whether the indefinite length form is used.
     #[must_use]
     pub fn is_indefinite(&self) -> bool {
         self.is_indefinite
     }
 
-    /// The chunks the byte string is made of.
-    ///
-    /// A definite length byte string is normally a single chunk.
+    /// The chunks; a definite string is normally one chunk.
     #[must_use]
     pub fn chunks(&self) -> &[Vec<u8>] {
         &self.chunks
     }
 
-    /// The chunks the byte string is made of, mutably.
+    /// The chunks, mutably.
     #[must_use]
     pub fn chunks_mut(&mut self) -> &mut Vec<Vec<u8>> {
         &mut self.chunks
     }
 
-    /// Take ownership of the chunks the byte string is made of.
+    /// Take the chunks.
     #[must_use]
     pub fn into_chunks(self) -> Vec<Vec<u8>> {
         self.chunks
     }
 
-    /// All chunks concatenated into one buffer.
+    /// All chunks joined.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         self.chunks.concat()
     }
 
-    /// Total number of bytes across every chunk.
+    /// Number of bytes.
     #[must_use]
     pub fn len(&self) -> usize {
         self.chunks.iter().map(Vec::len).sum()
     }
 
-    /// Whether the byte string carries no bytes at all.
+    /// Whether there are no bytes.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.chunks.iter().all(Vec::is_empty)
@@ -179,6 +171,10 @@ impl<const N: usize> From<[u8; N]> for ByteString {
 impl Debug for ByteString {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         if self.is_indefinite {
+            // RFC 8949 section 8.1: no chunks
+            if self.chunks.is_empty() {
+                return f.write_str("''_");
+            }
             f.write_str("(_ ")?;
             for (index, chunk) in self.chunks.iter().enumerate() {
                 if index > 0 {
@@ -193,7 +189,7 @@ impl Debug for ByteString {
     }
 }
 
-/// Write bytes using the `h'..'` byte string diagnostic notation.
+/// Write bytes as `h'..'`.
 fn write_hex(f: &mut Formatter<'_>, bytes: &[u8]) -> FmtResult {
     f.write_str("h'")?;
     for byte in bytes {

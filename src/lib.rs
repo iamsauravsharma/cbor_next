@@ -1,8 +1,8 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
-//! Library to handle a Concise Binary Object Representation (`CBOR`)
+//! Concise Binary Object Representation (`CBOR`, RFC 8949) for Rust.
 //!
-//! Every `CBOR` value is a [`DataItem`], which is encoded with
-//! [`DataItem::encode`] and decoded with [`DataItem::decode`].
+//! Every value is a [`DataItem`]: [`encode`](DataItem::encode) it and
+//! [`decode`](DataItem::decode) it back.
 //!
 //! ```rust
 //! use cbor_next::{DataItem, Get as _, TextString};
@@ -21,9 +21,8 @@
 //! );
 //! ```
 //!
-//! Those two methods use the default settings. [`Encoder`] and [`Decoder`] do
-//! the same work under settings of your choosing, which is how deterministic
-//! output is produced and how untrusted input is held to a profile.
+//! [`Encoder`] and [`Decoder`] do the same with custom settings, such as
+//! deterministic output or limits for untrusted input.
 //!
 //! ```rust
 //! use cbor_next::{DataItem, Decoder, DeterministicMode, Encoder};
@@ -43,31 +42,31 @@
 //! );
 //! ```
 
-/// Module for the content held by the different data item variants
+/// Contents of the data item variants
 pub mod content;
 
-/// Module containing a data item
+/// The data item type
 pub mod data_item;
 
-/// Module for decoding `CBOR` bytes
+/// Decoding
 pub mod decode;
 
-/// Module containing different deterministic mode
+/// Deterministic encoding modes
 pub mod deterministic;
 
-/// Module for encoding data items
+/// Encoding
 pub mod encode;
 
-/// Module containing different type of error
+/// Errors
 pub mod error;
 
-/// Module for index
+/// Indexing into arrays and maps
 pub mod index;
 
-/// Module for the numbers of the tags registered by RFC 8949 and RFC 8742
+/// Registered tag numbers
 pub mod tags;
 
-/// Module for converting between Rust values and data items with serde
+/// Serde support
 #[cfg(feature = "serde")]
 #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 pub mod serde;

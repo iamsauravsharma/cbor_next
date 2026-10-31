@@ -1,8 +1,4 @@
-//! Deterministic, also called canonical, encoding of data items.
-//!
-//! Two encoders which follow the same deterministic mode turn equal values
-//! into equal bytes, which is what comparing, hashing or signing an encoded
-//! value relies on.
+//! Deterministic (canonical) encoding: equal values give equal bytes.
 
 use std::cmp::Ordering;
 
@@ -10,7 +6,7 @@ use crate::content::{Array, ByteString, Map, TextString};
 use crate::data_item::DataItem;
 use crate::encode::Encoder;
 
-/// Ordering a deterministic encoding applies to the keys of a map.
+/// Map key order for deterministic encoding.
 ///
 /// # Example
 /// ```rust
@@ -36,17 +32,15 @@ use crate::encode::Encoder;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[non_exhaustive]
 pub enum DeterministicMode {
-    /// Sort keys by their encoded bytes, the core deterministic encoding of
-    /// RFC 8949 section 4.2.1.
+    /// Bytewise key order (RFC 8949 section 4.2.1).
     #[default]
     Core,
-    /// Sort shorter encoded keys first and compare keys of the same length by
-    /// their bytes, the length first ordering of RFC 8949 section 4.2.3.
+    /// Shorter keys first, then bytewise (RFC 8949 section 4.2.3).
     LengthFirst,
 }
 
 impl DeterministicMode {
-    /// Compare two encoded map keys the way this mode orders them.
+    /// Compare two encoded keys in this order.
     ///
     /// # Example
     /// ```rust
@@ -79,7 +73,7 @@ impl DeterministicMode {
     }
 }
 
-/// Whether an item is already in the deterministic form of the provided mode.
+/// Whether an item is deterministic in the mode.
 pub(crate) fn is_deterministic(item: &DataItem, mode: DeterministicMode) -> bool {
     let encoder = Encoder::new().deterministic(mode);
     match item {
@@ -114,7 +108,7 @@ pub(crate) fn is_deterministic(item: &DataItem, mode: DeterministicMode) -> bool
     }
 }
 
-/// Rewrite an item into the deterministic form of the provided mode.
+/// Rewrite an item into deterministic form.
 pub(crate) fn into_deterministic(item: DataItem, mode: DeterministicMode) -> DataItem {
     let encoder = Encoder::new().deterministic(mode);
     match item {

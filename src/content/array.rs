@@ -3,12 +3,9 @@ use std::hash::{Hash, Hasher};
 
 use crate::data_item::DataItem;
 
-/// Content of an array, `CBOR` major type 4.
+/// An array, major type 4.
 ///
-/// An array holds an ordered sequence of data items and remembers whether it
-/// was encoded with a definite length or with the indefinite length form
-/// terminated by a break. The items themselves are reached through
-/// [`items`](Array::items) and its mutable and owning counterparts.
+/// Remembers whether it uses the indefinite length form.
 ///
 /// # Example
 /// ```rust
@@ -21,7 +18,7 @@ use crate::data_item::DataItem;
 /// assert!(!content.is_indefinite());
 /// ```
 ///
-/// Arrays are equal when their items are, whatever their length form.
+/// Equality ignores the length form.
 #[derive(Default, Clone)]
 pub struct Array {
     is_indefinite: bool,
@@ -35,7 +32,7 @@ impl Array {
         Self::default()
     }
 
-    /// Create a definite length array from a sequence of items.
+    /// Create a definite length array from items.
     #[must_use]
     pub fn from_items<I, T>(items: I) -> Self
     where
@@ -48,8 +45,7 @@ impl Array {
         }
     }
 
-    /// Return the same content with the definite or indefinite encoding
-    /// selected.
+    /// Set the length form, builder style.
     ///
     /// # Example
     /// ```rust
@@ -64,30 +60,30 @@ impl Array {
         self
     }
 
-    /// Select the definite or indefinite encoding in place.
+    /// Set the length form.
     pub fn set_indefinite(&mut self, indefinite: bool) {
         self.is_indefinite = indefinite;
     }
 
-    /// Whether the array uses the indefinite length encoding.
+    /// Whether the indefinite length form is used.
     #[must_use]
     pub fn is_indefinite(&self) -> bool {
         self.is_indefinite
     }
 
-    /// The items of the array.
+    /// The items.
     #[must_use]
     pub fn items(&self) -> &[DataItem] {
         &self.items
     }
 
-    /// The items of the array, mutably.
+    /// The items, mutably.
     #[must_use]
     pub fn items_mut(&mut self) -> &mut Vec<DataItem> {
         &mut self.items
     }
 
-    /// Take ownership of the items of the array.
+    /// Take the items.
     #[must_use]
     pub fn into_items(self) -> Vec<DataItem> {
         self.items

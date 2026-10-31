@@ -4,14 +4,10 @@ use indexmap::IndexMap;
 
 use crate::data_item::DataItem;
 
-/// Content of a map, `CBOR` major type 5.
+/// A map, major type 5.
 ///
-/// Entries are kept in their original order by an [`IndexMap`], so a decoded
-/// map re-encodes to the same bytes, while comparison and hashing stay
-/// independent of that order. A map also remembers whether it was encoded with
-/// a definite length or with the indefinite length form terminated by a break.
-/// The entries themselves are reached through [`entries`](Map::entries) and its
-/// mutable and owning counterparts.
+/// Keeps entry order (an [`IndexMap`]) and its length form, so it re-encodes
+/// the same.
 ///
 /// # Example
 /// ```rust
@@ -26,8 +22,7 @@ use crate::data_item::DataItem;
 /// );
 /// ```
 ///
-/// Maps are equal when they hold the same pairs in any order, whatever their
-/// length form.
+/// Equality and hashing ignore entry order and length form.
 #[derive(Default, Clone)]
 pub struct Map {
     is_indefinite: bool,
@@ -41,10 +36,9 @@ impl Map {
         Self::default()
     }
 
-    /// Create a definite length map from a sequence of key value pairs.
+    /// Create a definite length map from key value pairs.
     ///
-    /// A key which is present more than once keeps the position of its first
-    /// occurrence and the value of its last one.
+    /// A repeated key keeps its first position and its last value.
     #[must_use]
     pub fn from_entries<I, K, V>(entries: I) -> Self
     where
@@ -61,8 +55,7 @@ impl Map {
         }
     }
 
-    /// Return the same content with the definite or indefinite encoding
-    /// selected.
+    /// Set the length form, builder style.
     ///
     /// # Example
     /// ```rust
@@ -77,30 +70,30 @@ impl Map {
         self
     }
 
-    /// Select the definite or indefinite encoding in place.
+    /// Set the length form.
     pub fn set_indefinite(&mut self, indefinite: bool) {
         self.is_indefinite = indefinite;
     }
 
-    /// Whether the map uses the indefinite length encoding.
+    /// Whether the indefinite length form is used.
     #[must_use]
     pub fn is_indefinite(&self) -> bool {
         self.is_indefinite
     }
 
-    /// The entries of the map in encoding order.
+    /// The entries, in encoding order.
     #[must_use]
     pub fn entries(&self) -> &IndexMap<DataItem, DataItem> {
         &self.entries
     }
 
-    /// The entries of the map, mutably.
+    /// The entries, mutably.
     #[must_use]
     pub fn entries_mut(&mut self) -> &mut IndexMap<DataItem, DataItem> {
         &mut self.entries
     }
 
-    /// Take ownership of the entries of the map.
+    /// Take the entries.
     #[must_use]
     pub fn into_entries(self) -> IndexMap<DataItem, DataItem> {
         self.entries

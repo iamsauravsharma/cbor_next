@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Formatter, Result as FmtResult};
+use std::fmt::{Debug, Formatter, Result as FmtResult, Write as _};
 
 use crate::data_item::DataItem;
 use crate::decode::{Decoder, DuplicateKeyMode};
@@ -7,10 +7,7 @@ use crate::tags::{
     EMBEDDED_SEQUENCE, EPOCH_TIME, MIME_MESSAGE, NEGATIVE_BIGNUM, UNSIGNED_BIGNUM, URI,
 };
 
-/// Content of a tagged item, `CBOR` major type 6.
-///
-/// A tag pairs an unsigned integer, which carries the semantic meaning
-/// registered for it, with the single data item it applies to.
+/// A tag, major type 6: a number and the item it applies to.
 ///
 /// # Example
 /// ```rust
@@ -27,7 +24,7 @@ pub struct Tag {
 }
 
 impl Tag {
-    /// Create a tag from its number and the item it applies to.
+    /// Create a tag.
     #[must_use]
     pub fn new(number: u64, content: impl Into<DataItem>) -> Self {
         Self {
@@ -36,43 +33,41 @@ impl Tag {
         }
     }
 
-    /// The number of the tag.
+    /// The tag number.
     #[must_use]
     pub fn number(&self) -> u64 {
         self.number
     }
 
-    /// Replace the number of the tag.
+    /// Replace the tag number.
     pub fn set_number(&mut self, number: u64) {
         self.number = number;
     }
 
-    /// The item the tag applies to.
+    /// The tagged item.
     #[must_use]
     pub fn content(&self) -> &DataItem {
         &self.content
     }
 
-    /// The item the tag applies to, mutably.
+    /// The tagged item, mutably.
     #[must_use]
     pub fn content_mut(&mut self) -> &mut DataItem {
         &mut self.content
     }
 
-    /// Take ownership of the item the tag applies to.
+    /// Take the tagged item.
     #[must_use]
     pub fn into_content(self) -> DataItem {
         *self.content
     }
 
-    /// Whether the content is of the type the tag number requires.
+    /// Whether the content has the type the tag requires (RFC 8949 section
+    /// 5.3.2).
     ///
-    /// This is the first kind of tag validity of RFC 8949 section 5.3.2,
-    /// checked for the tags registered by RFC 8949 and RFC 8742, which are
-    /// named in [`tags`](crate::tags). A tag of any other number is valid
-    /// with any content. The value of the content is not checked, so tag 0
-    /// around text which is not a date is valid here, while tag 24 and tag 63
-    /// do require their byte string to hold well formed `CBOR`.
+    /// Checks the tags in [`tags`](crate::tags); others accept anything.
+    /// Values are not checked, except that tags 24 and 63 need well formed
+    /// `CBOR`.
     ///
     /// # Example
     /// ```rust
@@ -114,7 +109,7 @@ impl Tag {
     }
 }
 
-/// Whether an item is an integer of major type 0 or 1 or a valid bignum.
+/// Whether an item is an integer or a valid bignum.
 fn is_integer_or_bignum(item: &DataItem) -> bool {
     item.is_integer()
         || item.as_tag().is_some_and(|tag| {
@@ -122,8 +117,7 @@ fn is_integer_or_bignum(item: &DataItem) -> bool {
         })
 }
 
-/// A decoder which checks that bytes are well formed and nothing more, as
-/// RFC 8949 section 3.4.5.1 asks of tag 24.
+/// A decoder that only checks well-formedness (RFC 8949 section 3.4.5.1).
 fn well_formed_decoder() -> Decoder {
     Decoder::new().duplicate_keys(DuplicateKeyMode::Last)
 }
@@ -137,8 +131,59 @@ where
     }
 }
 
+/// Bignums print as their integer, other tags as `number(content)`.
 impl Debug for Tag {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        if let (UNSIGNED_BIGNUM | NEGATIVE_BIGNUM, DataItem::Byte(bytes)) =
+            (self.number, self.content())
+        {
+            let negative = self.number == NEGATIVE_BIGNUM;
+            if negative {
+                f.write_char('-')?;
+            }
+            return f.write_str(&bignum_to_decimal(&bytes.to_bytes(), negative));
+        }
         write!(f, "{}({:?})", self.number, self.content)
     }
+}
+
+/// Decimal digits of a big endian magnitude, plus one if `plus_one`
+/// (a negative bignum `n` means `-1 - n`).
+fn bignum_to_decimal(bytes: &[u8], plus_one: bool) -> String {
+    // base 256, least significant first
+    let mut digits_256 = bytes.iter().rev().copied().collect::<Vec<_>>();
+    if plus_one {
+        let mut carry = true;
+        for digit in &mut digits_256 {
+            (*digit, carry) = digit.overflowing_add(1);
+            if !carry {
+                break;
+            }
+        }
+        if carry {
+            digits_256.push(1);
+        }
+    }
+    let mut decimal = Vec::new();
+    loop {
+        while digits_256.last() == Some(&0) {
+            digits_256.pop();
+        }
+        if digits_256.is_empty() {
+            break;
+        }
+        // divide by ten; the remainder is the next digit
+        let mut remainder = 0_u16;
+        for digit in digits_256.iter_mut().rev() {
+            let value = (remainder << 8) | u16::from(*digit);
+            *digit = u8::try_from(value / 10).expect("a quotient below 256");
+            remainder = value % 10;
+        }
+        decimal.push(b'0' + u8::try_from(remainder).expect("a remainder below ten"));
+    }
+    if decimal.is_empty() {
+        return "0".into();
+    }
+    decimal.reverse();
+    String::from_utf8(decimal).expect("ascii digits")
 }

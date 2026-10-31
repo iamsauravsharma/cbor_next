@@ -35,7 +35,7 @@ impl DataItem {
         Self::Text(text.into())
     }
 
-    /// Create an array item from a sequence of items.
+    /// Create an array item.
     ///
     /// # Example
     /// ```rust
@@ -55,7 +55,7 @@ impl DataItem {
         Self::Array(Array::from_items(items))
     }
 
-    /// Create a map item from a sequence of key value pairs.
+    /// Create a map item from key value pairs.
     ///
     /// # Example
     /// ```rust
@@ -89,8 +89,7 @@ impl DataItem {
     /// Create a generic simple value item.
     ///
     /// # Errors
-    /// If the number is between 20 and 31, which RFC 8949 either assigns to a
-    /// dedicated data item or reserves
+    /// If the number is between 20 and 31
     ///
     /// # Example
     /// ```rust
@@ -103,7 +102,7 @@ impl DataItem {
         Ok(Self::GenericSimple(Simple::try_from(value)?))
     }
 
-    /// Is a unsigned integer value?
+    /// Whether this is an unsigned integer.
     ///
     /// # Example
     /// ```
@@ -116,7 +115,7 @@ impl DataItem {
         matches!(self, Self::Unsigned(_))
     }
 
-    /// Is a signed integer value?
+    /// Whether this is a negative integer.
     ///
     /// # Example
     /// ```
@@ -129,7 +128,7 @@ impl DataItem {
         matches!(self, Self::Signed(_))
     }
 
-    /// Is a integer? Can be both signed as well as unsigned
+    /// Whether this is an integer, unsigned or negative.
     ///
     /// # Example
     /// ```
@@ -143,7 +142,7 @@ impl DataItem {
         matches!(self, Self::Unsigned(_) | Self::Signed(_))
     }
 
-    /// Is a byte value?
+    /// Whether this is a byte string.
     ///
     /// # Example
     /// ```
@@ -156,7 +155,7 @@ impl DataItem {
         matches!(self, Self::Byte(_))
     }
 
-    /// Is a text value?
+    /// Whether this is a text string.
     ///
     /// # Example
     /// ```
@@ -169,7 +168,7 @@ impl DataItem {
         matches!(self, Self::Text(_))
     }
 
-    /// Is a array value?
+    /// Whether this is an array.
     ///
     /// # Example
     /// ```
@@ -182,7 +181,7 @@ impl DataItem {
         matches!(self, Self::Array(_))
     }
 
-    /// Is a map value?
+    /// Whether this is a map.
     ///
     /// # Example
     /// ```
@@ -195,7 +194,7 @@ impl DataItem {
         matches!(self, Self::Map(_))
     }
 
-    /// Is a tag value?
+    /// Whether this is a tag.
     ///
     /// # Example
     /// ```
@@ -208,7 +207,7 @@ impl DataItem {
         matches!(self, Self::Tag(_))
     }
 
-    /// Is a boolean value?
+    /// Whether this is a boolean.
     ///
     /// # Example
     /// ```
@@ -221,7 +220,7 @@ impl DataItem {
         matches!(self, Self::Boolean(_))
     }
 
-    /// Is a null value?
+    /// Whether this is `null`.
     ///
     /// # Example
     /// ```
@@ -234,7 +233,7 @@ impl DataItem {
         matches!(self, Self::Null)
     }
 
-    /// Is a undefined value?
+    /// Whether this is `undefined`.
     ///
     /// # Example
     /// ```
@@ -247,7 +246,7 @@ impl DataItem {
         matches!(self, Self::Undefined)
     }
 
-    /// Is a floating value?
+    /// Whether this is a float.
     ///
     /// # Example
     /// ```
@@ -260,8 +259,8 @@ impl DataItem {
         matches!(self, Self::Floating(_))
     }
 
-    /// Is a simple value? Boolean, null and undefined are simple values as
-    /// well
+    /// Whether this is a simple value, including booleans, `null` and
+    /// `undefined`.
     ///
     /// # Example
     /// ```
@@ -278,7 +277,7 @@ impl DataItem {
         )
     }
 
-    /// Is a generic simple value?
+    /// Whether this is a generic simple value.
     ///
     /// # Example
     /// ```
@@ -292,10 +291,7 @@ impl DataItem {
         matches!(self, Self::GenericSimple(_))
     }
 
-    /// Is an item which is encoded with an indefinite length?
-    ///
-    /// Only byte strings, text strings, arrays and maps can use the indefinite
-    /// length encoding, so every other item answers `false`.
+    /// Whether this is a string, array or map of indefinite length.
     ///
     /// # Example
     /// ```
@@ -316,7 +312,7 @@ impl DataItem {
         }
     }
 
-    /// Get as unsigned number
+    /// As an unsigned integer.
     ///
     /// # Example
     /// ```
@@ -332,7 +328,7 @@ impl DataItem {
         }
     }
 
-    /// Get as signed number. This will always return negative number
+    /// As a negative integer.
     ///
     /// # Example
     /// ```
@@ -348,8 +344,7 @@ impl DataItem {
         }
     }
 
-    /// Get as integer which can be both signed or unsigned, including a
-    /// bignum of tag 2 or 3 whose value fits an `i128`
+    /// As an integer, including a bignum that fits an `i128`.
     ///
     /// # Example
     /// ```
@@ -380,7 +375,7 @@ impl DataItem {
         }
     }
 
-    /// Get as byte string content
+    /// As a byte string.
     ///
     /// # Example
     /// ```
@@ -397,7 +392,7 @@ impl DataItem {
         }
     }
 
-    /// Get as mutable byte string content
+    /// As a byte string, mutably.
     #[must_use]
     pub fn as_byte_mut(&mut self) -> Option<&mut ByteString> {
         match self {
@@ -406,7 +401,7 @@ impl DataItem {
         }
     }
 
-    /// Get as text string content
+    /// As a text string.
     ///
     /// # Example
     /// ```
@@ -422,7 +417,7 @@ impl DataItem {
         }
     }
 
-    /// Get as mutable text string content
+    /// As a text string, mutably.
     #[must_use]
     pub fn as_text_mut(&mut self) -> Option<&mut TextString> {
         match self {
@@ -431,7 +426,7 @@ impl DataItem {
         }
     }
 
-    /// Get as array content
+    /// As an array.
     ///
     /// # Example
     /// ```
@@ -448,7 +443,7 @@ impl DataItem {
         }
     }
 
-    /// Get as mutable array content
+    /// As an array, mutably.
     ///
     /// # Example
     /// ```
@@ -466,7 +461,7 @@ impl DataItem {
         }
     }
 
-    /// Get as map content
+    /// As a map.
     ///
     /// # Example
     /// ```
@@ -483,7 +478,7 @@ impl DataItem {
         }
     }
 
-    /// Get as mutable map content
+    /// As a map, mutably.
     #[must_use]
     pub fn as_map_mut(&mut self) -> Option<&mut Map> {
         match self {
@@ -492,7 +487,7 @@ impl DataItem {
         }
     }
 
-    /// Get as tag content
+    /// As a tag.
     ///
     /// # Example
     /// ```
@@ -510,7 +505,7 @@ impl DataItem {
         }
     }
 
-    /// Get as mutable tag content
+    /// As a tag, mutably.
     #[must_use]
     pub fn as_tag_mut(&mut self) -> Option<&mut Tag> {
         match self {
@@ -519,7 +514,7 @@ impl DataItem {
         }
     }
 
-    /// Get as boolean value
+    /// As a boolean.
     ///
     /// # Example
     /// ```
@@ -535,7 +530,7 @@ impl DataItem {
         }
     }
 
-    /// Get as floating number
+    /// As a float.
     ///
     /// # Example
     /// ```
@@ -551,8 +546,7 @@ impl DataItem {
         }
     }
 
-    /// Get as simple value number, including the numbers assigned to boolean,
-    /// null and undefined
+    /// As a simple value number, including booleans, `null` and `undefined`.
     ///
     /// # Example
     /// ```
@@ -573,10 +567,7 @@ impl DataItem {
         }
     }
 
-    /// Peel away every layer of tag and get the item they apply to
-    ///
-    /// An item which is not tagged is returned as it is, so this is also a
-    /// convenient way to inspect a value whose tagging is optional.
+    /// The item under all tags; an untagged item is returned as is.
     ///
     /// # Example
     /// ```rust
@@ -595,7 +586,7 @@ impl DataItem {
         item
     }
 
-    /// Peel away every layer of tag and get the item they apply to, mutably
+    /// The item under all tags, mutably.
     #[must_use]
     pub fn untagged_mut(&mut self) -> &mut Self {
         let mut item = self;
@@ -605,7 +596,7 @@ impl DataItem {
         item
     }
 
-    /// Get the numbers of every tag applied to the item, outermost first
+    /// The tag numbers around the item, outermost first.
     ///
     /// # Example
     /// ```rust
@@ -626,7 +617,26 @@ impl DataItem {
         numbers
     }
 
-    /// Get a major type of a value
+    /// Diagnostic notation of a sequence, comma separated (RFC 8742
+    /// section 4.2).
+    ///
+    /// # Example
+    /// ```rust
+    /// use cbor_next::DataItem;
+    ///
+    /// let items = [DataItem::from(1), DataItem::from("a")];
+    /// assert_eq!(DataItem::sequence_to_string(&items), "1, \"a\"");
+    /// assert_eq!(DataItem::sequence_to_string(&[]), "");
+    /// ```
+    pub fn sequence_to_string<'a>(items: impl IntoIterator<Item = &'a Self>) -> String {
+        items
+            .into_iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    /// The major type (0 to 7).
     ///
     /// # Example
     /// ```rust
@@ -652,7 +662,7 @@ impl DataItem {
         }
     }
 
-    /// Get a `CBOR` encoded representation of value
+    /// Encode with the default [`Encoder`].
     ///
     /// # Example
     /// ```rust
@@ -667,7 +677,7 @@ impl DataItem {
         Encoder::new().encode(self)
     }
 
-    /// Decode a `CBOR` representation to a value
+    /// Decode one item with the default [`Decoder`].
     ///
     /// # Example
     /// ```rust
@@ -679,14 +689,12 @@ impl DataItem {
     /// ```
     ///
     /// # Errors
-    /// If provided bytes cannot be converted to `CBOR`, if bytes remain after a
-    /// complete data item, or if nesting exceeds the supported maximum depth.
-    /// [`Decoder`] decodes with a different set of limits
+    /// If the bytes are not one well formed item or exceed the default limits
     pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
         Decoder::new().decode(bytes)
     }
 
-    /// Check current data item is in deterministic form
+    /// Whether the item is in deterministic form for the mode.
     ///
     /// # Example
     /// ```rust
@@ -700,10 +708,7 @@ impl DataItem {
         deterministic::is_deterministic(self, mode)
     }
 
-    /// Get a deterministic form of the value in the provided mode
-    ///
-    /// Map keys are sorted, and every indefinite length item is turned into its
-    /// definite length counterpart.
+    /// Convert to deterministic form: sorted map keys, definite lengths only.
     ///
     /// # Example
     /// ```rust

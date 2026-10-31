@@ -14,7 +14,7 @@ use crate::data_item::convert::f32_to_f64;
 /// Turn a value into a data item.
 ///
 /// # Errors
-/// If the value holds data which `CBOR` cannot represent
+/// If the value holds something `CBOR` cannot
 ///
 /// # Example
 /// ```rust
@@ -36,7 +36,7 @@ where
 /// Encode a value as `CBOR` bytes.
 ///
 /// # Errors
-/// Under the same conditions as [`to_data_item`]
+/// As [`to_data_item`]
 ///
 /// # Example
 /// ```rust
@@ -55,7 +55,7 @@ fn single_entry(name: &str, content: DataItem) -> DataItem {
     DataItem::map([(DataItem::from(name), content)])
 }
 
-/// Define the methods which turn a value into a data item with `From`.
+/// Define serialize methods that use `From`.
 macro_rules! serialize_with_from {
     ($($method:ident($type:ty)),* $(,)?) => {
         $(
@@ -234,13 +234,13 @@ impl Serializer for ItemSerializer {
     }
 }
 
-/// What the elements of a sequence are turned into once it ends.
+/// What a finished sequence becomes.
 enum SeqKind {
     /// An array
     Array,
-    /// An array under the name of an enum variant
+    /// An array under an enum variant name
     Variant(&'static str),
-    /// A tag, from the number and the content a [`Tagged`] value writes
+    /// A tag, from a [`Tagged`] number and content
     ///
     /// [`Tagged`]: super::Tagged
     Tag,
@@ -293,7 +293,7 @@ impl SeqSerializer {
     }
 }
 
-/// Implement the traits whose elements all land in a [`SeqSerializer`].
+/// Implement the traits backed by a [`SeqSerializer`].
 macro_rules! impl_serialize_seq {
     ($($trait:ident::$method:ident),* $(,)?) => {
         $(
@@ -390,8 +390,7 @@ impl SerializeMap for MapSerializer {
     }
 }
 
-/// Implement the traits whose fields all land in a [`MapSerializer`] under
-/// their name.
+/// Implement the traits backed by a [`MapSerializer`], keyed by field name.
 macro_rules! impl_serialize_struct {
     ($($trait:ident),* $(,)?) => {
         $(

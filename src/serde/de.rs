@@ -14,9 +14,7 @@ use crate::tags::{NEGATIVE_BIGNUM, UNSIGNED_BIGNUM};
 /// Turn a data item into a value.
 ///
 /// # Errors
-/// If the item does not fit the type, or holds data which serde cannot
-/// represent: a tag which nothing asked for, `undefined` or a simple value in
-/// place of another type
+/// If the item does not fit the type or holds something serde cannot
 ///
 /// # Example
 /// ```rust
@@ -39,11 +37,10 @@ where
     T::deserialize(item)
 }
 
-/// Decode `CBOR` bytes holding one data item into a value.
+/// Decode `CBOR` bytes into a value.
 ///
 /// # Errors
-/// If the bytes are not a well formed data item, if bytes follow it, or under
-/// the conditions of [`from_data_item`]
+/// If decoding fails, or as [`from_data_item`]
 ///
 /// # Example
 /// ```rust
@@ -58,11 +55,11 @@ where
     from_data_item(&DataItem::decode(bytes)?)
 }
 
-/// Variant index a tag takes when a [`DataItem`] is read from one
+/// Variant index for a tag read into a [`DataItem`]
 pub(super) const TAG_VARIANT: u32 = 0;
-/// Variant index `undefined` takes when a [`DataItem`] is read from it
+/// Variant index for `undefined` read into a [`DataItem`]
 pub(super) const UNDEFINED_VARIANT: u32 = 1;
-/// Variant index a simple value takes when a [`DataItem`] is read from one
+/// Variant index for a simple value read into a [`DataItem`]
 pub(super) const SIMPLE_VARIANT: u32 = 2;
 
 /// The magnitude a bignum holds, RFC 8949 section 3.4.3.
@@ -219,8 +216,7 @@ impl<'de> de::Deserializer<'de> for &'de DataItem {
                     "expected a simple value, found {self}"
                 )))
             }
-            // an item with no counterpart in serde is handed over as a
-            // variant, which the visitor of a data item knows to unwrap
+            // items serde lacks go as a variant the DataItem visitor unwraps
             DataItem::Tag(_) | DataItem::Undefined | DataItem::GenericSimple(_)
                 if name == DATA_ITEM_NAME =>
             {
@@ -353,8 +349,7 @@ impl<'de> MapAccess<'de> for MapDeserializer<'de> {
     }
 }
 
-/// The number and the content of a tag, as the two elements a [`Tagged`]
-/// value reads.
+/// A tag as the two elements (number, content) a [`Tagged`] reads.
 ///
 /// [`Tagged`]: super::Tagged
 struct TagAccess<'de> {
@@ -384,8 +379,8 @@ impl<'de> SeqAccess<'de> for TagAccess<'de> {
     }
 }
 
-/// A tag, `undefined` or a simple value handed to the visitor of a
-/// [`DataItem`] as a variant.
+/// A tag, `undefined` or simple value passed as a variant to the
+/// [`DataItem`] visitor.
 struct SpecialAccess<'de> {
     item: &'de DataItem,
 }

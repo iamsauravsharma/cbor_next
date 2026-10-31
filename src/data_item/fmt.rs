@@ -2,8 +2,27 @@ use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 use crate::data_item::DataItem;
 
-/// Both [`Debug`] and [`Display`] write the diagnostic notation of RFC 8949
-/// section 8, so a data item reads the way the specification writes it.
+/// Both [`Debug`] and [`Display`] write diagnostic notation (RFC 8949
+/// section 8), matching appendix A.
+///
+/// - Text is a JSON string; bytes are `h'..'`.
+/// - Indefinite length items use `(_ ..)`, `[_ ..]`, `{_ ..}`, or `''_` and
+///   `""_` when empty.
+/// - Bignums (tags 2 and 3) print as their integer.
+///
+/// # Example
+/// ```rust
+/// use cbor_next::DataItem;
+///
+/// let bignum = DataItem::decode(&[0xc2, 0x49, 1, 0, 0, 0, 0, 0, 0, 0, 0]).unwrap();
+/// assert_eq!(bignum.to_string(), "18446744073709551616");
+/// assert_eq!(
+///     DataItem::decode(&[0x7f, 0xff]).unwrap().to_string(),
+///     "\"\"_"
+/// );
+/// assert_eq!(DataItem::from("a\"b\n").to_string(), r#""a\"b\n""#);
+/// assert_eq!(DataItem::tag(1, 1.5).to_string(), "1(1.5)");
+/// ```
 impl Debug for DataItem {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {

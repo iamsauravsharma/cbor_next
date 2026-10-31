@@ -2,11 +2,9 @@ use std::fmt::{Debug, Formatter, Result as FmtResult};
 
 use crate::error::Error;
 
-/// A simple value of `CBOR` major type 7 which has no dedicated variant.
+/// A simple value (major type 7) without its own variant: 0 to 19 or 32 to 255.
 ///
-/// The values 20 to 23 are `false`, `true`, `null` and `undefined`, and the
-/// values 24 to 31 are reserved by RFC 8949, so this wrapper only accepts a
-/// number in the range 0 to 19 or 32 to 255.
+/// 20 to 23 are `false`, `true`, `null` and `undefined`; 24 to 31 are reserved.
 ///
 /// # Example
 /// ```rust
@@ -21,7 +19,7 @@ use crate::error::Error;
 pub struct Simple(u8);
 
 impl Simple {
-    /// The number of the simple value.
+    /// The number.
     #[must_use]
     pub fn value(self) -> u8 {
         self.0
@@ -34,8 +32,7 @@ impl TryFrom<u8> for Simple {
     /// Create a simple value.
     ///
     /// # Errors
-    /// If the number is between 20 and 31, which RFC 8949 either assigns to a
-    /// dedicated data item or reserves
+    /// If the number is between 20 and 31
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0..=19 | 32..=u8::MAX => Ok(Self(value)),

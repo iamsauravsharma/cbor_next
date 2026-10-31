@@ -26,11 +26,7 @@ macro_rules! impl_from {
 
 impl_from!(u64, u32, u16, u8);
 
-/// An integer which does not fit a major type 0 or 1 item, as a bignum of
-/// tag 2 or 3, RFC 8949 section 3.4.3.
-///
-/// The magnitude of a negative number is `-1 - value`, and leading zero bytes
-/// are left out as the preferred serialization asks.
+/// A bignum (tag 2 or 3, RFC 8949 section 3.4.3) without leading zero bytes.
 pub(crate) fn bignum(negative: bool, magnitude: u128) -> DataItem {
     let bytes = magnitude.to_be_bytes();
     let start = bytes
@@ -45,10 +41,7 @@ pub(crate) fn bignum(negative: bool, magnitude: u128) -> DataItem {
     DataItem::tag(number, DataItem::bytes(&bytes[start..]))
 }
 
-/// The magnitude a bignum holds, or `None` when it is wider than 128 bits.
-///
-/// Leading zero bytes are accepted, as RFC 8949 section 3.4.3 requires of a
-/// decoder.
+/// The magnitude of a bignum, or `None` past 128 bits. Leading zeros are fine.
 pub(crate) fn bignum_magnitude(bytes: &[u8]) -> Option<u128> {
     let start = bytes
         .iter()
@@ -65,7 +58,7 @@ pub(crate) fn bignum_magnitude(bytes: &[u8]) -> Option<u128> {
     )
 }
 
-/// A number which fits a major type 0 item is one, any other is a bignum.
+/// Major type 0 when it fits, otherwise a bignum.
 impl From<u128> for DataItem {
     fn from(value: u128) -> Self {
         u64::try_from(value).map_or_else(|_| bignum(false, value), Self::Unsigned)
@@ -87,8 +80,7 @@ impl From<i64> for DataItem {
 
 impl_from!(i64, i32, i16, i8);
 
-/// A number which fits a major type 0 or 1 item is one, any other is a
-/// bignum.
+/// Major type 0 or 1 when it fits, otherwise a bignum.
 impl From<i128> for DataItem {
     fn from(value: i128) -> Self {
         if let Ok(unsigned) = u64::try_from(value) {
@@ -134,9 +126,8 @@ impl From<half::f16> for DataItem {
 /// Sign bit and exponent of an `f64` NaN
 const F64_NAN_EXPONENT: u64 = 0x7FF0_0000_0000_0000;
 
-/// Widen a half precision float, keeping the significand of a NaN.
-///
-/// A plain conversion sets the quiet bit of a signaling NaN.
+/// Widen a half precision float, keeping a NaN's significand (a plain cast
+/// would quiet it).
 pub(crate) fn f16_to_f64(value: half::f16) -> f64 {
     if value.is_nan() {
         let bits = value.to_bits();
@@ -190,9 +181,8 @@ impl From<Array> for DataItem {
     }
 }
 
-/// A vector of any item which converts into a data item becomes an array. A
-/// vector of bytes is therefore an array of unsigned integers, not a byte
-/// string, which [`DataItem::bytes`] builds instead.
+/// A vector becomes an array, so `Vec<u8>` is an array of integers; use
+/// [`DataItem::bytes`] for a byte string.
 impl<T> From<Vec<T>> for DataItem
 where
     T: Into<DataItem>,

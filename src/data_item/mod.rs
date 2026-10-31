@@ -6,12 +6,7 @@ mod api;
 pub(crate) mod convert;
 mod fmt;
 
-/// Enum representing different types of data item that can be encoded or
-/// decoded in `CBOR` (Concise Binary Object Representation).
-///
-/// `CBOR` is a data format designed for small code and message size, often used
-/// in constrained environments. This `DataItem` enum covers all major types
-/// defined in the `CBOR` specification (RFC 8949).
+/// A `CBOR` data item (RFC 8949).
 ///
 /// # Example
 /// ```rust
@@ -24,68 +19,32 @@ mod fmt;
 #[derive(Clone)]
 #[non_exhaustive]
 pub enum DataItem {
-    /// Unsigned integer represented by `CBOR` major type 0.
-    ///
-    /// This variant can hold non-negative integer values up to `u64::MAX`.
+    /// Unsigned integer, major type 0.
     Unsigned(u64),
-    /// Negative integer represented by `CBOR` major type 1.
+    /// Negative integer, major type 1, stored as `n` for the value `-1 - n`.
     ///
-    /// This variant stores the absolute value minus one of the negative
-    /// integer. For example, a `CBOR` negative integer representing -1 would
-    /// store `0`, -10 would store `9`. The actual negative value is derived
-    /// as `-(1 + value)`. Building this variant from the value it stands for
-    /// is done with `DataItem::from(-10_i64)` or, for the full `CBOR` range,
-    /// `DataItem::from(-10_i128)`, which writes a bignum past that range.
+    /// Build it with `DataItem::from(-10_i64)`; an `i128` past this range
+    /// becomes a bignum.
     Signed(u64),
-    /// Byte string represented by `CBOR` major type 2.
-    ///
-    /// Contains an arbitrary sequence of bytes.
+    /// Byte string, major type 2.
     Byte(ByteString),
-    /// UTF-8 string (text string) represented by `CBOR` major type 3.
-    ///
-    /// Contains a sequence of Unicode characters encoded as UTF-8.
+    /// Text string, major type 3.
     Text(TextString),
-    /// Array of `CBOR` data items represented by `CBOR` major type 4.
-    ///
-    /// An ordered sequence of zero or more `CBOR` data items.
+    /// Array, major type 4.
     Array(Array),
-    /// Map of `CBOR` key-value pairs represented by `CBOR` major type 5.
-    ///
-    /// Keys within a map must be unique
+    /// Map, major type 5.
     Map(Map),
-    /// Tagged item (semantic tag) represented by `CBOR` major type 6.
-    ///
-    /// Consists of an unsigned integer (the tag) and a single `CBOR` data item
-    /// (the tagged content). Tags provide semantic information about the
-    /// enclosed data item, allowing for type extension
-    /// or application-specific interpretations.
+    /// Tag, major type 6.
     Tag(Tag),
-    /// Boolean represented as a simple value within `CBOR` major type 7.
-    ///
-    /// Can be either `true` or `false`.
+    /// `false` or `true`, simple values 20 and 21.
     Boolean(bool),
-    /// Null represented as a simple value within `CBOR` major type 7.
-    ///
-    /// Represents the absence of a value.
+    /// `null`, simple value 22.
     Null,
-    /// Undefined represented as a simple value within `CBOR` major type
-    /// 7.
-    ///
-    /// Distinct from `Null`, it represents an undefined state.
+    /// `undefined`, simple value 23.
     Undefined,
-    /// Floating-point number represented as a simple value within `CBOR` major
-    /// type 7.
-    ///
-    /// Can represent half-precision (16-bit), single-precision (32-bit), or
-    /// double-precision (64-bit) floating-point numbers. but locally saves
-    /// data as f64
+    /// Floating point number of any width, held as `f64`.
     Floating(f64),
-    /// An generic simple value represented by `CBOR` major type 7.
-    ///
-    /// This variant handles simple values that are not explicitly covered by
-    /// `Boolean`, `Null`, `Undefined`, or `Floating`. These generic simple
-    /// values have a numerical representation as defined in the `CBOR`
-    /// specification.
+    /// Any other simple value.
     GenericSimple(Simple),
 }
 
@@ -105,8 +64,8 @@ impl PartialEq for DataItem {
             (Self::Boolean(first), Self::Boolean(second)) => first == second,
             (Self::Null, Self::Null) | (Self::Undefined, Self::Undefined) => true,
             (Self::Floating(first), Self::Floating(second)) => {
-                // RFC 8949 section 5.6.1: `-0.0` equals `0.0` and NaNs are
-                // equal when their significands are
+                // RFC 8949 section 5.6.1: `-0.0 == 0.0`, NaNs equal by
+                // significand
                 if first.is_nan() || second.is_nan() {
                     first.is_nan()
                         && second.is_nan()
@@ -133,9 +92,7 @@ impl Hash for DataItem {
             Self::Array(values) => values.hash(state),
             Self::Map(map_content) => {
                 map_content.entries().len().hash(state);
-                // entries are compared without regard to their order, so they
-                // must be hashed with an order independent
-                // combination as well
+                // equality ignores entry order, so the hash must too
                 let mut combined: u64 = 0;
                 for entry in map_content.entries() {
                     let mut entry_hasher = DefaultHasher::new();

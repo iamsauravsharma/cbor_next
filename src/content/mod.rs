@@ -1,11 +1,7 @@
-//! Contents carried by the different [`DataItem`] variants.
+//! Contents of the [`DataItem`](crate::DataItem) variants.
 //!
-//! [`DataItem`]: crate::DataItem
-//!
-//! Every content type keeps the information required to re-encode a data item
-//! byte for byte, which includes whether the original item used a definite or
-//! an indefinite length and, for byte and text strings, how the payload was
-//! split into chunks.
+//! Each keeps its length form and chunks, so a decoded item re-encodes byte
+//! for byte.
 
 mod array;
 mod byte;

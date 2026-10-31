@@ -6,6 +6,7 @@ mod diagnostic;
 mod encoder;
 mod failure;
 mod index;
+mod rfc_8949_appendix_a;
 mod roundtrip;
 #[cfg(feature = "serde")]
 mod serde;
