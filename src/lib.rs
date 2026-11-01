@@ -83,7 +83,7 @@ pub use decode::{Decoder, DuplicateKeyMode, Sequence};
 #[doc(inline)]
 pub use deterministic::DeterministicMode;
 #[doc(inline)]
-pub use encode::{Encoder, FloatMode, LengthMode};
+pub use encode::{Encoder, FloatMode, LengthMode, NanMode};
 #[doc(inline)]
 pub use error::Error;
 #[doc(inline)]

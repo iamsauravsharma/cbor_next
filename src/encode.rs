@@ -5,6 +5,7 @@
 
 use crate::data_item::DataItem;
 use crate::deterministic::DeterministicMode;
+use crate::tags;
 
 /// Length form for strings, arrays and maps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -26,8 +27,22 @@ pub enum FloatMode {
     /// Shortest width that keeps the value (RFC 8949 preferred serialization).
     #[default]
     Shortest,
-    /// Always 64 bit.
+    /// Always 64 bit; ignored when deterministic.
     Double,
+    /// An integral value from -2^63 to 2^64 - 1 as that integer, others
+    /// shortest (RFC 8949 section 4.2.2 rule 1). It decodes as an integer.
+    Integral,
+}
+
+/// How a NaN is written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum NanMode {
+    /// Keep its sign and payload, in the shortest width that holds them.
+    #[default]
+    Preserve,
+    /// Always `f9 7e00` (RFC 8949 section 4.2.2).
+    Canonical,
 }
 
 /// A configurable `CBOR` encoder.
@@ -57,6 +72,9 @@ pub struct Encoder {
     deterministic: Option<DeterministicMode>,
     length: LengthMode,
     float: FloatMode,
+    nan: NanMode,
+    positive_zero: bool,
+    self_described: bool,
 }
 
 impl Encoder {
@@ -89,6 +107,38 @@ impl Encoder {
         self
     }
 
+    /// Set how a NaN is written.
+    #[must_use]
+    pub fn nan(mut self, mode: NanMode) -> Self {
+        self.nan = mode;
+        self
+    }
+
+    /// Write `-0.0` as `0.0` (RFC 8949 section 4.2.2).
+    #[must_use]
+    pub fn positive_zero(mut self, positive: bool) -> Self {
+        self.positive_zero = positive;
+        self
+    }
+
+    /// Start the output with tag 55799, `d9 d9 f7` (RFC 8949 section 3.4.6).
+    ///
+    /// A sequence gets it once; an item already tagged 55799 does not get it
+    /// twice.
+    ///
+    /// # Example
+    /// ```rust
+    /// use cbor_next::{DataItem, Encoder};
+    ///
+    /// let encoder = Encoder::new().self_described(true);
+    /// assert_eq!(encoder.encode(&DataItem::from(1)), [0xd9, 0xd9, 0xf7, 0x01]);
+    /// ```
+    #[must_use]
+    pub fn self_described(mut self, described: bool) -> Self {
+        self.self_described = described;
+        self
+    }
+
     /// Encode one item.
     #[must_use]
     pub fn encode(&self, item: &DataItem) -> Vec<u8> {
@@ -99,6 +149,7 @@ impl Encoder {
 
     /// Encode one item into a buffer.
     pub fn encode_into(&self, item: &DataItem, buffer: &mut Vec<u8>) {
+        self.write_self_description(item, buffer);
         self.write_item(item, buffer);
     }
 
@@ -126,8 +177,21 @@ impl Encoder {
     where
         I: IntoIterator<Item = &'a DataItem>,
     {
-        for item in items {
+        for (index, item) in items.into_iter().enumerate() {
+            if index == 0 {
+                self.write_self_description(item, buffer);
+            }
             self.write_item(item, buffer);
+        }
+    }
+
+    /// Write the tag 55799 head if asked and the item lacks it.
+    fn write_self_description(&self, item: &DataItem, buffer: &mut Vec<u8>) {
+        let described = item
+            .as_tag()
+            .is_some_and(|tag| tag.number() == tags::SELF_DESCRIBED);
+        if self.self_described && !described {
+            write_head(buffer, 6, tags::SELF_DESCRIBED);
         }
     }
 
@@ -208,14 +272,7 @@ impl Encoder {
             DataItem::Boolean(true) => buffer.push(major_type << 5 | 0x15),  // 21
             DataItem::Null => buffer.push(major_type << 5 | 0x16),           // 22
             DataItem::Undefined => buffer.push(major_type << 5 | 0x17),      // 23
-            DataItem::Floating(number) => {
-                if self.float == FloatMode::Double && self.deterministic.is_none() {
-                    buffer.push(major_type << 5 | 0x1B); // 27
-                    buffer.extend_from_slice(&number.to_be_bytes());
-                } else {
-                    write_float(buffer, major_type, *number);
-                }
-            }
+            DataItem::Floating(number) => self.write_floating(*number, buffer),
             DataItem::GenericSimple(simple) => {
                 let value = simple.value();
                 if value <= 23 {
@@ -225,6 +282,29 @@ impl Encoder {
                     buffer.push(value);
                 }
             }
+        }
+    }
+
+    /// Write a float as the settings ask.
+    fn write_floating(&self, number: f64, buffer: &mut Vec<u8>) {
+        if number.is_nan() && self.nan == NanMode::Canonical {
+            buffer.extend_from_slice(&[0xf9, 0x7e, 0x00]);
+            return;
+        }
+        let number = if self.positive_zero && number == 0.0 {
+            0.0
+        } else {
+            number
+        };
+        if self.float == FloatMode::Integral
+            && let Some(integer) = integral_value(number)
+        {
+            self.write_item(&DataItem::from(integer), buffer);
+        } else if self.float == FloatMode::Double && self.deterministic.is_none() {
+            buffer.push(7 << 5 | 0x1B); // 27
+            buffer.extend_from_slice(&number.to_be_bytes());
+        } else {
+            write_float(buffer, 7, number);
         }
     }
 
@@ -287,6 +367,17 @@ fn write_head(buffer: &mut Vec<u8>, major_type: u8, argument: u64) {
         buffer.push(shifted_major_type | 0x1B); // 27
         buffer.extend_from_slice(&argument.to_be_bytes());
     }
+}
+
+/// The integer an integral float in -2^63 to 2^64 - 1 stands for.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "an integral value in range converts exactly"
+)]
+fn integral_value(number: f64) -> Option<i128> {
+    const MIN: f64 = -9_223_372_036_854_775_808.0;
+    const MAX: f64 = 18_446_744_073_709_551_616.0;
+    (number.fract() == 0.0 && (MIN..MAX).contains(&number)).then_some(number as i128)
 }
 
 /// Mantissa bits a NaN loses when narrowed to f16

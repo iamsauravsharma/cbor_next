@@ -1,7 +1,7 @@
 use crate::content::{Array, ByteString, Map, TextString};
 use crate::data_item::DataItem;
 use crate::deterministic::DeterministicMode;
-use crate::encode::{Encoder, FloatMode, LengthMode};
+use crate::encode::{Encoder, FloatMode, LengthMode, NanMode};
 use crate::tests::hex_bytes;
 
 #[test]
@@ -151,4 +151,75 @@ fn shortest_float_width_matches_what_is_written() {
             "{number:?}"
         );
     }
+}
+
+#[test]
+fn section_4_2_2_choices_are_settings() {
+    // every NaN as the single representation
+    let canonical = Encoder::new().nan(NanMode::Canonical);
+    for hex_cbor in ["f97e01", "f9fe00", "fa7f800001", "fb7ff8000000000001"] {
+        let item = DataItem::decode(&hex_bytes(hex_cbor)).unwrap();
+        assert_eq!(item.encode(), hex_bytes(hex_cbor), "{hex_cbor}");
+        assert_eq!(canonical.encode(&item), hex_bytes("f97e00"), "{hex_cbor}");
+    }
+    // zeros with a positive sign
+    let positive = Encoder::new().positive_zero(true);
+    assert_eq!(DataItem::from(-0.0).encode(), hex_bytes("f98000"));
+    assert_eq!(positive.encode(&DataItem::from(-0.0)), hex_bytes("f90000"));
+    assert_eq!(positive.encode(&DataItem::from(-1.5)), hex_bytes("f9be00"));
+    // integral numbers as integers
+    let integral = Encoder::new().float(FloatMode::Integral);
+    assert_eq!(integral.encode(&DataItem::from(1.0)), hex_bytes("01"));
+    assert_eq!(integral.encode(&DataItem::from(-1.0)), hex_bytes("20"));
+    assert_eq!(integral.encode(&DataItem::from(-0.0)), hex_bytes("00"));
+    assert_eq!(integral.encode(&DataItem::from(1.5)), hex_bytes("f93e00"));
+    assert_eq!(
+        integral.encode(&DataItem::from(f64::INFINITY)),
+        hex_bytes("f97c00")
+    );
+    assert_eq!(
+        integral.encode(&DataItem::from(1e300)),
+        hex_bytes("fb7e37e43c8800759c")
+    );
+    // 2^64 - 1 rounds to 2^64 as a double, which is past the integers
+    assert_eq!(
+        integral.encode(&DataItem::from(18_446_744_073_709_551_615.0)),
+        hex_bytes("fa5f800000")
+    );
+    assert_eq!(
+        integral.encode(&DataItem::from(18_446_744_073_709_549_568.0)),
+        hex_bytes("1bfffffffffffff800")
+    );
+    assert_eq!(
+        integral.encode(&DataItem::from(-9_223_372_036_854_775_808.0)),
+        hex_bytes("3b7fffffffffffffff")
+    );
+    assert_eq!(
+        integral.encode(&DataItem::from(-18_446_744_073_709_551_616.0)),
+        hex_bytes("fadf800000")
+    );
+    // these choices still apply under a deterministic mode
+    let strict = Encoder::new()
+        .float(FloatMode::Integral)
+        .nan(NanMode::Canonical)
+        .positive_zero(true)
+        .deterministic(DeterministicMode::Core);
+    assert_eq!(strict.encode(&DataItem::from(2.0)), hex_bytes("02"));
+    assert_eq!(
+        strict.encode(&DataItem::from(f64::from_bits(0x7ff8_0000_0000_0001))),
+        hex_bytes("f97e00")
+    );
+    assert_eq!(strict.encode(&DataItem::from(-0.5)), hex_bytes("f9b800"));
+    // self-described, once per sequence and never twice
+    let described = Encoder::new().self_described(true);
+    assert_eq!(described.encode(&DataItem::from(1)), hex_bytes("d9d9f701"));
+    assert_eq!(
+        described.encode(&DataItem::tag(55799, 1)),
+        hex_bytes("d9d9f701")
+    );
+    assert_eq!(
+        described.encode_sequence(&[DataItem::from(1), DataItem::from(2)]),
+        hex_bytes("d9d9f70102")
+    );
+    assert_eq!(described.encode_sequence(&[]), hex_bytes(""));
 }
