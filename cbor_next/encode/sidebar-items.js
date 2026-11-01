@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["FloatMode","LengthMode"],"struct":["Encoder"]};
+window.SIDEBAR_ITEMS = {"enum":["FloatMode","LengthMode","NanMode"],"struct":["Encoder"]};
