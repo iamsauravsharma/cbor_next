@@ -343,12 +343,12 @@ impl Encoder {
 const BREAK: u8 = 0xFF;
 
 /// A length as the `u64` a head needs.
-fn count_of(length: usize) -> u64 {
+pub(crate) fn count_of(length: usize) -> u64 {
     u64::try_from(length).expect("in memory length fits in u64")
 }
 
 /// Write a head in its shortest form.
-fn write_head(buffer: &mut Vec<u8>, major_type: u8, argument: u64) {
+pub(crate) fn write_head(buffer: &mut Vec<u8>, major_type: u8, argument: u64) {
     let shifted_major_type = major_type << 5;
     if let Ok(u8_value) = u8::try_from(argument) {
         if u8_value <= 23 {
@@ -422,7 +422,7 @@ pub(crate) fn shortest_float_additional(number: f64) -> u8 {
     clippy::cast_possible_truncation,
     reason = "the width was chosen so that no data is lost"
 )]
-fn write_float(buffer: &mut Vec<u8>, major_type: u8, number: f64) {
+pub(crate) fn write_float(buffer: &mut Vec<u8>, major_type: u8, number: f64) {
     let additional = shortest_float_additional(number);
     buffer.push(major_type << 5 | additional);
     if number.is_nan() {

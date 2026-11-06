@@ -63,6 +63,9 @@ pub mod error;
 /// Indexing into arrays and maps
 pub mod index;
 
+/// Streaming decoding and encoding
+pub mod stream;
+
 /// Registered tag numbers
 pub mod tags;
 
@@ -88,6 +91,8 @@ pub use encode::{Encoder, FloatMode, LengthMode, NanMode};
 pub use error::Error;
 #[doc(inline)]
 pub use index::Get;
+#[doc(inline)]
+pub use stream::{StreamDecoder, StreamEncoder, Token};
 #[doc(inline)]
 pub use validate::TagValidity;
 
