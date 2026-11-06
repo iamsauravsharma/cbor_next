@@ -13,6 +13,7 @@ use crate::data_item::convert::{f16_to_f64, f32_to_f64};
 use crate::deterministic::{self, DeterministicMode};
 use crate::encode::shortest_float_additional;
 use crate::error::Error;
+use crate::stream::StreamDecoder;
 use crate::validate::{self, TagValidity};
 
 /// Byte which closes an indefinite length item.
@@ -290,6 +291,19 @@ impl Decoder {
             reader: Reader::new(bytes, self.max_items),
             failed: false,
         }
+    }
+
+    /// Decode as a stream of tokens, fed bytes as they arrive.
+    ///
+    /// The stream applies the nesting depth, item count and indefinite length
+    /// settings; see [`StreamDecoder`].
+    #[must_use]
+    pub fn stream(&self) -> StreamDecoder {
+        StreamDecoder::new(
+            self.max_nesting_depth,
+            self.max_items,
+            self.allow_indefinite,
+        )
     }
 
     fn check_deterministic(&self, item: &DataItem) -> Result<(), Error> {
