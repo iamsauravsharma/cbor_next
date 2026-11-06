@@ -1,2 +1,2 @@
-window.ALL_CRATES = ["cbor_next"];
-//{"start":21,"fragment_lengths":[11]}
+window.ALL_CRATES = [{"c":"cbor_next"}];
+//{"start":21,"fragment_lengths":[17]}
