@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["Base64","Base64Url","DateTimeString","Embedded","EmbeddedSequence","EpochTime","MimeMessage","SelfDescribed","Uri"]};
+window.SIDEBAR_ITEMS = {"enum":["Zone"],"struct":["Base64","Base64Url","DateString","DateTimeString","Embedded","EmbeddedSequence","EpochDays","EpochTime","IpAddress","IpInterface","IpPrefix","MimeMessage","SelfDescribed","Uri"]};
