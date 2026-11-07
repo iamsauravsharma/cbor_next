@@ -1,4 +1,5 @@
-//! Tag numbers registered by RFC 8949 and RFC 8742.
+//! Tag numbers of RFC 8949, RFC 8742, and the RFC 8943 dates and RFC 9164 IP
+//! addresses.
 //!
 //! Names only; the encoder and decoder keep any tag as it is.
 //!
@@ -53,8 +54,20 @@ pub const BASE64: u64 = 34;
 /// Tag 36, MIME message text.
 pub const MIME_MESSAGE: u64 = 36;
 
+/// Tag 52, an IPv4 address, prefix or interface (RFC 9164).
+pub const IPV4: u64 = 52;
+
+/// Tag 54, an IPv6 address, prefix or interface (RFC 9164).
+pub const IPV6: u64 = 54;
+
 /// Tag 63, bytes holding an encoded sequence (RFC 8742).
 pub const EMBEDDED_SEQUENCE: u64 = 63;
+
+/// Tag 100, days since 1970-01-01, an integer (RFC 8943).
+pub const EPOCH_DAYS: u64 = 100;
+
+/// Tag 1004, an RFC 3339 `full-date` text (RFC 8943).
+pub const DATE_STRING: u64 = 1004;
 
 /// Tag 55799, self-described `CBOR` (leading bytes `d9 d9 f7`).
 pub const SELF_DESCRIBED: u64 = 55799;
