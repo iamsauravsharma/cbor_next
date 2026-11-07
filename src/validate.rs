@@ -7,7 +7,7 @@ use base64::engine::general_purpose::GeneralPurpose;
 #[cfg(feature = "validation")]
 use base64::engine::{DecodePaddingMode, Engine as _, GeneralPurposeConfig};
 
-use crate::content::Tag;
+use crate::content::{Array, Tag};
 use crate::data_item::DataItem;
 use crate::decode::{Decoder, DuplicateKeyMode};
 use crate::error::Error;
@@ -82,11 +82,15 @@ pub(crate) fn has_valid_type(tag: &Tag) -> bool {
         | tags::URI
         | tags::BASE64URL
         | tags::BASE64
-        | tags::MIME_MESSAGE => content.is_text(),
+        | tags::MIME_MESSAGE
+        | tags::DATE_STRING => content.is_text(),
         tags::EPOCH_TIME => content.is_integer() || content.is_floating(),
+        tags::EPOCH_DAYS => content.is_integer(),
         tags::UNSIGNED_BIGNUM | tags::NEGATIVE_BIGNUM => content.is_byte(),
         tags::DECIMAL_FRACTION | tags::BIGFLOAT => is_exponent_and_mantissa(content),
         tags::EMBEDDED_ITEM | tags::EMBEDDED_SEQUENCE => holds_cbor(tag, &well_formed_decoder()),
+        tags::IPV4 => is_ip_shape(content, 4, 32),
+        tags::IPV6 => is_ip_shape(content, 16, 128),
         _ => true,
     }
 }
@@ -102,6 +106,9 @@ pub(crate) fn has_valid_value(tag: &Tag, decoder: &Decoder) -> bool {
         tags::URI => text().is_some_and(|text| fluent_uri::UriRef::parse(text.as_str()).is_ok()),
         tags::BASE64URL => text().is_some_and(|text| is_base64(&text, true)),
         tags::BASE64 => text().is_some_and(|text| is_base64(&text, false)),
+        tags::DATE_STRING => text().is_some_and(|text| is_full_date(&text)),
+        tags::IPV4 => has_valid_type(tag) && has_clean_prefix(tag.content(), 32),
+        tags::IPV6 => has_valid_type(tag) && has_clean_prefix(tag.content(), 128),
         _ => has_valid_type(tag),
     }
 }
@@ -123,23 +130,41 @@ fn well_formed_decoder() -> Decoder {
     Decoder::new().duplicate_keys(DuplicateKeyMode::Last)
 }
 
-/// Whether an item is `[exponent, mantissa]` (tags 4 and 5).
+/// `[exponent, mantissa]` with an integer or bignum mantissa (tags 4 and 5).
 fn is_exponent_and_mantissa(content: &DataItem) -> bool {
-    content.as_array().is_some_and(|array| {
-        matches!(
-            array.items(),
-            [exponent, mantissa] if exponent.is_integer() && is_integer_or_bignum(mantissa)
-        )
-    })
+    let Some([exponent, mantissa]) = content.as_array().map(Array::items) else {
+        return false;
+    };
+    let is_bignum = mantissa.as_tag().is_some_and(|tag| {
+        matches!(tag.number(), tags::UNSIGNED_BIGNUM | tags::NEGATIVE_BIGNUM) && has_valid_type(tag)
+    });
+    exponent.is_integer() && (mantissa.is_integer() || is_bignum)
 }
 
-/// Whether an item is an integer or a valid bignum.
-fn is_integer_or_bignum(item: &DataItem) -> bool {
-    item.is_integer()
-        || item.as_tag().is_some_and(|tag| {
-            (tag.number() == tags::UNSIGNED_BIGNUM || tag.number() == tags::NEGATIVE_BIGNUM)
-                && has_valid_type(tag)
-        })
+/// An RFC 9164 address, `[length, prefix]` or `[address, length / null,
+/// ?zone]`.
+fn is_ip_shape(content: &DataItem, size: usize, max_length: u64) -> bool {
+    let is_address = |item: &DataItem| item.as_byte().is_some_and(|bytes| bytes.len() == size);
+    let is_length = |item: &DataItem| {
+        item.as_unsigned()
+            .is_some_and(|length| length <= max_length)
+    };
+    match content.as_array().map(Array::items) {
+        None => is_address(content),
+        Some([length, prefix]) if length.is_unsigned_integer() => {
+            is_length(length) && prefix.as_byte().is_some_and(|bytes| bytes.len() <= size)
+        }
+        Some([address, length, zone @ ..]) => {
+            is_address(address)
+                && (is_length(length) || length.is_null())
+                && match zone {
+                    [] => true,
+                    [zone] => zone.is_unsigned_integer() || zone.is_text(),
+                    _ => false,
+                }
+        }
+        Some(_) => false,
+    }
 }
 
 /// An RFC 3339 date and time with uppercase `T` and `Z` (RFC 4287).
@@ -151,6 +176,44 @@ fn is_date_time(text: &str) -> bool {
     // the parser also takes a space and lowercase letters
     let uppercase = text.as_bytes().get(10) == Some(&b'T') && !text.contains(['t', 'z']);
     uppercase && OffsetDateTime::parse(text, &Rfc3339).is_ok()
+}
+
+/// An RFC 3339 `full-date` (RFC 8943).
+#[cfg(feature = "validation")]
+fn is_full_date(text: &str) -> bool {
+    use time::Date;
+    use time::format_description::parse_borrowed;
+
+    text.len() == 10
+        && parse_borrowed::<2>("[year]-[month]-[day]")
+            .is_ok_and(|format| Date::parse(text, &format).is_ok())
+}
+
+/// An RFC 9164 prefix with no bits set past its length and no trailing zero
+/// byte; other shapes have no such rule.
+#[cfg(any(feature = "validation", feature = "serde"))]
+pub(crate) fn has_clean_prefix(content: &DataItem, max_length: u64) -> bool {
+    let Some([length, bytes]) = content.as_array().map(Array::items) else {
+        return true;
+    };
+    let (Some(length), Some(bytes)) = (length.as_unsigned(), bytes.as_byte()) else {
+        return true;
+    };
+    let bytes = bytes.to_bytes();
+    let Some(&last) = bytes.last() else {
+        return length <= max_length;
+    };
+    // bytes the length reaches into
+    let reached = usize::try_from(length.div_ceil(8)).unwrap_or(usize::MAX);
+    let unused_bits = if bytes.len() == reached {
+        (8 - length % 8) % 8
+    } else {
+        0
+    };
+    length <= max_length
+        && bytes.len() <= reached
+        && last != 0
+        && u32::from(last).trailing_zeros() >= u32::try_from(unused_bits).unwrap_or(8)
 }
 
 /// Base64url without padding, or base64 with it (section 3.4.5.3).

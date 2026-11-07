@@ -292,3 +292,136 @@ fn embedded_items_share_the_nesting_limit() {
     assert!(decoder.clone().max_nesting_depth(11).decode(&bytes).is_ok());
     assert!(decoder.max_nesting_depth(10).decode(&bytes).is_err());
 }
+
+#[test]
+fn rfc_8943_dates_have_types() {
+    assert!(Tag::new(tags::DATE_STRING, "1940-10-09").is_valid());
+    assert!(!Tag::new(tags::DATE_STRING, 1).is_valid());
+    assert!(Tag::new(tags::EPOCH_DAYS, -10_676).is_valid());
+    assert!(!Tag::new(tags::EPOCH_DAYS, 1.5).is_valid());
+}
+
+#[test]
+fn rfc_9164_addresses_have_shapes() {
+    let v4 = DataItem::bytes([192, 0, 2, 1]);
+    let v6 = DataItem::bytes([0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+    assert!(Tag::new(tags::IPV4, v4.clone()).is_valid());
+    assert!(Tag::new(tags::IPV6, v6.clone()).is_valid());
+    assert!(!Tag::new(tags::IPV4, v6.clone()).is_valid());
+    assert!(!Tag::new(tags::IPV6, v4.clone()).is_valid());
+    // prefix: length then up to that many bytes
+    assert!(
+        Tag::new(
+            tags::IPV4,
+            DataItem::array([DataItem::from(24), DataItem::bytes([192, 0, 2])])
+        )
+        .is_valid()
+    );
+    assert!(
+        Tag::new(
+            tags::IPV6,
+            DataItem::array([DataItem::from(128), DataItem::bytes([])])
+        )
+        .is_valid()
+    );
+    assert!(
+        !Tag::new(
+            tags::IPV4,
+            DataItem::array([DataItem::from(33), DataItem::bytes([192])])
+        )
+        .is_valid()
+    );
+    assert!(
+        !Tag::new(
+            tags::IPV4,
+            DataItem::array([DataItem::from(8), DataItem::bytes([1, 2, 3, 4, 5])])
+        )
+        .is_valid()
+    );
+    // interface: address, length or null, maybe a zone
+    assert!(
+        Tag::new(
+            tags::IPV4,
+            DataItem::array([v4.clone(), DataItem::from(24)])
+        )
+        .is_valid()
+    );
+    assert!(
+        Tag::new(
+            tags::IPV4,
+            DataItem::array([v4.clone(), DataItem::Null, DataItem::from(42)])
+        )
+        .is_valid()
+    );
+    assert!(
+        Tag::new(
+            tags::IPV6,
+            DataItem::array([v6.clone(), DataItem::from(64), DataItem::from("eth0")])
+        )
+        .is_valid()
+    );
+    assert!(
+        !Tag::new(
+            tags::IPV6,
+            DataItem::array([v6.clone(), DataItem::from(129)])
+        )
+        .is_valid()
+    );
+    assert!(
+        !Tag::new(
+            tags::IPV4,
+            DataItem::array([v4.clone(), DataItem::from(24), DataItem::from(1.5)])
+        )
+        .is_valid()
+    );
+    assert!(!Tag::new(tags::IPV4, DataItem::array([v4.clone()])).is_valid());
+    assert!(!Tag::new(tags::IPV4, "192.0.2.1").is_valid());
+}
+
+#[cfg(feature = "validation")]
+#[test]
+fn rfc_8943_dates_have_values() {
+    for text in ["1940-10-09", "2000-02-29", "9999-12-31"] {
+        assert!(
+            Tag::new(tags::DATE_STRING, text).has_valid_value(),
+            "{text}"
+        );
+    }
+    for text in [
+        "1940-13-09",
+        "1900-02-29",
+        "1940-10-9",
+        "1940-10-09T00:00:00Z",
+        "yesterday",
+    ] {
+        assert!(
+            !Tag::new(tags::DATE_STRING, text).has_valid_value(),
+            "{text}"
+        );
+    }
+}
+
+#[cfg(feature = "validation")]
+#[test]
+fn rfc_9164_prefixes_have_clean_bits() {
+    let prefix = |length: u64, bytes: &[u8]| {
+        Tag::new(
+            tags::IPV6,
+            DataItem::array([DataItem::from(length), DataItem::bytes(bytes)]),
+        )
+        .has_valid_value()
+    };
+    assert!(prefix(44, &hex_bytes("20010db81230")));
+    assert!(prefix(64, &hex_bytes("20010db8")));
+    assert!(prefix(128, &[]));
+    assert!(prefix(0, &[]));
+    // bits past the length, a trailing zero byte, bytes past the length
+    assert!(!prefix(44, &hex_bytes("20010db81233")));
+    assert!(!prefix(44, &hex_bytes("20010db8123f")));
+    assert!(!prefix(44, &hex_bytes("20010db8123012")));
+    assert!(!prefix(64, &hex_bytes("20010db800")));
+    assert!(!prefix(32, &hex_bytes("20010db80001")));
+    // the other forms have no bit rule
+    let address = DataItem::bytes([192, 0, 2, 1]);
+    assert!(Tag::new(tags::IPV4, DataItem::array([address, DataItem::from(24)])).has_valid_value());
+}

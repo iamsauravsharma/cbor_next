@@ -4,20 +4,26 @@
 //! [`Embedded`] and [`EmbeddedSequence`] also encode and decode their bytes.
 //!
 //! Bignums need no type (`i128`/`u128`). For tags 4 and 5 use
-//! `TaggedWith<4, (i64, i128)>`; [`Tagged`](super::Tagged) keeps any tag.
+//! `TaggedWith<4, (i64, i128)>`; [`Tagged`] keeps any tag.
+//!
+//! The RFC 8943 and 9164 tags have types too: [`DateString`],
+//! [`EpochDays`], [`IpAddress`], [`IpPrefix`] and [`IpInterface`].
 
 use std::fmt::{Formatter, Result as FmtResult};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use ::serde::de::{self, Deserialize, DeserializeOwned, Deserializer, SeqAccess, Visitor};
 use ::serde::ser::{Error as _, Serialize, Serializer};
 
 use super::de::from_data_item;
 use super::ser::to_data_item;
-use super::wrapper::TaggedWith;
+use super::wrapper::{Tagged, TaggedWith};
+use crate::content::{Array, ByteString};
 use crate::data_item::DataItem;
 use crate::decode::Decoder;
 use crate::encode::Encoder;
 use crate::tags;
+use crate::validate::has_clean_prefix;
 
 /// Define a newtype over a [`TaggedWith`] of a registered number.
 macro_rules! registered_tag {
@@ -294,4 +300,322 @@ impl<'de> Visitor<'de> for ByteBufVisitor {
         }
         Ok(ByteBuf(bytes))
     }
+}
+
+registered_tag! {
+    /// Tag 1004, an RFC 3339 `full-date` text (RFC 8943).
+    DateString(String) = tags::DATE_STRING
+}
+
+registered_tag! {
+    /// Tag 100, days since 1970-01-01 (RFC 8943), any integer type.
+    ///
+    /// # Example
+    /// ```rust
+    /// use cbor_next::serde::tags::EpochDays;
+    /// use cbor_next::serde::to_vec;
+    ///
+    /// // 1940-10-09
+    /// assert_eq!(to_vec(&EpochDays(-10_676_i64)).unwrap(), [0xd8, 0x64, 0x39, 0x29, 0xb3]);
+    /// ```
+    EpochDays<T> = tags::EPOCH_DAYS
+}
+
+/// Tag 52 or 54, an IP address as its octets (RFC 9164).
+///
+/// # Example
+/// ```rust
+/// use std::net::{IpAddr, Ipv4Addr};
+///
+/// use cbor_next::serde::tags::IpAddress;
+/// use cbor_next::serde::{from_slice, to_vec};
+///
+/// let address = IpAddress(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)));
+/// let bytes = to_vec(&address).unwrap();
+/// assert_eq!(bytes, [0xd8, 0x34, 0x44, 0xc0, 0x00, 0x02, 0x01]);
+/// assert_eq!(from_slice::<IpAddress>(&bytes).unwrap(), address);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct IpAddress(pub IpAddr);
+
+impl Serialize for IpAddress {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        Tagged {
+            number: ip_tag(self.0),
+            content: Bytes(&octets(self.0)),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for IpAddress {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let tagged = Tagged::<ByteBuf>::deserialize(deserializer)?;
+        address_from(tagged.number, &tagged.content.0)
+            .map(Self)
+            .map_err(de::Error::custom)
+    }
+}
+
+/// Tag 52 or 54, a prefix: the leading `length` bits of an address (RFC
+/// 9164).
+///
+/// Written with the bits past the length cleared and trailing zero bytes
+/// dropped (section 4.2); read with the checks of section 4.3.
+///
+/// # Example
+/// ```rust
+/// use std::net::IpAddr;
+///
+/// use cbor_next::serde::tags::IpPrefix;
+/// use cbor_next::serde::{from_slice, to_vec};
+///
+/// // 2001:db8::/64
+/// let prefix = IpPrefix {
+///     address: IpAddr::V6("2001:db8::".parse().unwrap()),
+///     length: 64,
+/// };
+/// let bytes = to_vec(&prefix).unwrap();
+/// assert_eq!(
+///     bytes,
+///     [0xd8, 0x36, 0x82, 0x18, 0x40, 0x44, 0x20, 0x01, 0x0d, 0xb8]
+/// );
+/// assert_eq!(from_slice::<IpPrefix>(&bytes).unwrap(), prefix);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct IpPrefix {
+    /// The address; bits past the length are ignored.
+    pub address: IpAddr,
+    /// Leading bits that matter, up to 32 or 128.
+    pub length: u8,
+}
+
+impl Serialize for IpPrefix {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if u32::from(self.length) > address_bits(self.address) {
+            return Err(S::Error::custom(format_args!(
+                "prefix length {} is past the address",
+                self.length
+            )));
+        }
+        let mut octets = octets(self.address);
+        let reached = usize::from(self.length.div_ceil(8));
+        octets.truncate(reached);
+        if let Some(last) = octets.last_mut() {
+            *last &= u8::MAX
+                .checked_shl(u32::from((8 - self.length % 8) % 8))
+                .unwrap_or(0);
+        }
+        while octets.last() == Some(&0) {
+            octets.pop();
+        }
+        Tagged {
+            number: ip_tag(self.address),
+            content: (self.length, Bytes(&octets)),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for IpPrefix {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let tagged = Tagged::<DataItem>::deserialize(deserializer)?;
+        let refused = |what: &str| de::Error::custom(format!("an IP prefix {what}"));
+        let (size, max_length) = match tagged.number {
+            tags::IPV4 => (4, 32),
+            tags::IPV6 => (16, 128),
+            number => return Err(refused(&format!("is tag 52 or 54, not {number}"))),
+        };
+        let Some([length, prefix]) = tagged.content.as_array().map(Array::items) else {
+            return Err(refused("is [length, bytes]"));
+        };
+        let (Some(length), Some(prefix)) = (length.as_unsigned(), prefix.as_byte()) else {
+            return Err(refused("is [length, bytes]"));
+        };
+        if !has_clean_prefix(&tagged.content, max_length) {
+            return Err(refused("has bytes or bits past its length"));
+        }
+        let mut octets = prefix.to_bytes();
+        octets.resize(size, 0);
+        Ok(Self {
+            address: address_from(tagged.number, &octets).map_err(de::Error::custom)?,
+            length: u8::try_from(length).map_err(|_| refused("length is too long"))?,
+        })
+    }
+}
+
+/// A zone of RFC 9164 section 3.1.3: an interface index or name.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Zone {
+    /// The interface index.
+    Index(u64),
+    /// The interface name.
+    Name(String),
+}
+
+impl Serialize for Zone {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Index(index) => serializer.serialize_u64(*index),
+            Self::Name(name) => serializer.serialize_str(name),
+        }
+    }
+}
+
+/// Tag 52 or 54, an interface: an address, its prefix length and maybe a
+/// zone (RFC 9164).
+///
+/// # Example
+/// ```rust
+/// use std::net::{IpAddr, Ipv4Addr};
+///
+/// use cbor_next::serde::tags::{IpInterface, Zone};
+/// use cbor_next::serde::{from_slice, to_vec};
+///
+/// // 192.0.2.1/24 on eth0
+/// let interface = IpInterface {
+///     address: IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)),
+///     prefix_length: Some(24),
+///     zone: Some(Zone::Name("eth0".into())),
+/// };
+/// let bytes = to_vec(&interface).unwrap();
+/// assert_eq!(from_slice::<IpInterface>(&bytes).unwrap(), interface);
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct IpInterface {
+    /// The full address.
+    pub address: IpAddr,
+    /// The prefix length, or `None` for `null`.
+    pub prefix_length: Option<u8>,
+    /// The zone.
+    pub zone: Option<Zone>,
+}
+
+impl Serialize for IpInterface {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if let Some(length) = self.prefix_length
+            && u32::from(length) > address_bits(self.address)
+        {
+            return Err(S::Error::custom(format_args!(
+                "prefix length {length} is past the address"
+            )));
+        }
+        let number = ip_tag(self.address);
+        let address = octets(self.address);
+        let address = Bytes(&address);
+        // the zone is a third element only when there is one
+        match &self.zone {
+            Some(zone) => {
+                Tagged {
+                    number,
+                    content: (address, self.prefix_length, zone),
+                }
+                .serialize(serializer)
+            }
+            None => {
+                Tagged {
+                    number,
+                    content: (address, self.prefix_length),
+                }
+                .serialize(serializer)
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for IpInterface {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let tagged = Tagged::<DataItem>::deserialize(deserializer)?;
+        let refused = || de::Error::custom("an IP interface is [address, length or null, ?zone]");
+        let Some([address, length, zone @ ..]) = tagged.content.as_array().map(Array::items) else {
+            return Err(refused());
+        };
+        let octets = address
+            .as_byte()
+            .map(ByteString::to_bytes)
+            .ok_or_else(refused)?;
+        let address = address_from(tagged.number, &octets).map_err(de::Error::custom)?;
+        let prefix_length = if length.is_null() {
+            None
+        } else {
+            let length = length
+                .as_unsigned()
+                .and_then(|length| u8::try_from(length).ok())
+                .filter(|length| u32::from(*length) <= address_bits(address))
+                .ok_or_else(refused)?;
+            Some(length)
+        };
+        let zone = match zone {
+            [] => None,
+            [zone] => {
+                if let Some(index) = zone.as_unsigned() {
+                    Some(Zone::Index(index))
+                } else {
+                    Some(Zone::Name(zone.as_text().ok_or_else(refused)?.to_text()))
+                }
+            }
+            _ => return Err(refused()),
+        };
+        Ok(Self {
+            address,
+            prefix_length,
+            zone,
+        })
+    }
+}
+
+/// Tag 52 or 54 for an address.
+fn ip_tag(address: IpAddr) -> u64 {
+    match address {
+        IpAddr::V4(_) => tags::IPV4,
+        IpAddr::V6(_) => tags::IPV6,
+    }
+}
+
+/// Bits in an address.
+fn address_bits(address: IpAddr) -> u32 {
+    match address {
+        IpAddr::V4(_) => 32,
+        IpAddr::V6(_) => 128,
+    }
+}
+
+/// An address's octets.
+fn octets(address: IpAddr) -> Vec<u8> {
+    match address {
+        IpAddr::V4(address) => address.octets().to_vec(),
+        IpAddr::V6(address) => address.octets().to_vec(),
+    }
+}
+
+/// The address a tag number and octets stand for.
+fn address_from(number: u64, octets: &[u8]) -> Result<IpAddr, String> {
+    match number {
+        tags::IPV4 => <[u8; 4]>::try_from(octets).map(|octets| IpAddr::V4(Ipv4Addr::from(octets))),
+        tags::IPV6 => <[u8; 16]>::try_from(octets).map(|octets| IpAddr::V6(Ipv6Addr::from(octets))),
+        number => return Err(format!("tag {number} is not an IP address tag")),
+    }
+    .map_err(|_| format!("{} bytes do not fit tag {number}", octets.len()))
 }

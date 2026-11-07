@@ -422,3 +422,145 @@ fn registered_tags_have_types() {
         EmbeddedSequence(vec![1, 2])
     );
 }
+
+#[test]
+fn rfc_8943_dates_go_through_types() {
+    use crate::serde::tags::{DateString, EpochDays};
+
+    let date = DateString("1940-10-09".into());
+    let encoded = to_vec(&date).unwrap();
+    assert_eq!(encoded, bytes("d9 03ec 6a 313934302d31302d3039"));
+    assert_eq!(from_slice::<DateString>(&encoded).unwrap(), date);
+    assert_eq!(
+        to_vec(&EpochDays(3994_i32)).unwrap(),
+        bytes("d8 64 19 0f9a")
+    );
+    assert_eq!(
+        from_slice::<EpochDays<i64>>(&bytes("d8 64 39 29b3")).unwrap(),
+        EpochDays(-10_676)
+    );
+    assert!(from_slice::<EpochDays<u8>>(&bytes("d8 64 39 29b3")).is_err());
+}
+
+#[test]
+fn rfc_9164_addresses_go_through_types() {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    use crate::serde::tags::{IpAddress, IpPrefix};
+
+    let v6: Ipv6Addr = "2001:db8:1234:deed:beef:cafe:face:feed".parse().unwrap();
+    let address = IpAddress(IpAddr::V6(v6));
+    let encoded = to_vec(&address).unwrap();
+    assert_eq!(encoded, bytes("d8 36 50 20010db81234deedbeefcafefacefeed"));
+    assert_eq!(from_slice::<IpAddress>(&encoded).unwrap(), address);
+    assert!(from_slice::<IpAddress>(&bytes("d8 34 50 20010db81234deedbeefcafefacefeed")).is_err());
+    assert!(from_slice::<IpAddress>(&bytes("d8 34 43 c00002")).is_err());
+    assert!(from_slice::<IpAddress>(&bytes("c1 44 c0000201")).is_err());
+
+    // prefixes, written as section 4.2 asks and read with section 4.3
+    let prefix = IpPrefix {
+        address: IpAddr::V6("2001:db8:1230::".parse().unwrap()),
+        length: 44,
+    };
+    assert_eq!(
+        to_vec(&prefix).unwrap(),
+        bytes("d8 36 82 18 2c 46 20010db81230")
+    );
+    let dirty = IpPrefix {
+        address: IpAddr::V6("2001:db8:123f:ffff::".parse().unwrap()),
+        length: 44,
+    };
+    assert_eq!(
+        to_vec(&dirty).unwrap(),
+        bytes("d8 36 82 18 2c 46 20010db81230")
+    );
+    assert_eq!(
+        from_slice::<IpPrefix>(&bytes("d8 36 82 18 2c 46 20010db81230")).unwrap(),
+        prefix
+    );
+    assert_eq!(
+        to_vec(&IpPrefix {
+            address: IpAddr::V4(Ipv4Addr::new(192, 0, 2, 0)),
+            length: 24
+        })
+        .unwrap(),
+        bytes("d8 34 82 18 18 43 c00002")
+    );
+    assert_eq!(
+        from_slice::<IpPrefix>(&bytes("d8 36 82 18 80 40")).unwrap(),
+        IpPrefix {
+            address: IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+            length: 128
+        }
+    );
+    assert_eq!(
+        from_slice::<IpPrefix>(&bytes("d8 36 82 18 40 44 20010db8")).unwrap(),
+        IpPrefix {
+            address: IpAddr::V6("2001:db8::".parse().unwrap()),
+            length: 64
+        }
+    );
+    for hex_cbor in [
+        "d8 36 82 18 2c 46 20010db81233",
+        "d8 36 82 18 2c 46 20010db8123f",
+        "d8 36 82 18 2c 47 20010db8123012",
+        "d8 36 82 18 40 45 20010db800",
+        "d8 34 82 18 21 41 c0",
+        "d8 34 82 18 18 43 c00002 00",
+    ] {
+        assert!(
+            from_slice::<IpPrefix>(&bytes(hex_cbor)).is_err(),
+            "{hex_cbor}"
+        );
+    }
+    assert!(
+        to_vec(&IpPrefix {
+            address: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            length: 33
+        })
+        .is_err()
+    );
+}
+
+#[test]
+fn rfc_9164_interfaces_go_through_types() {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    use crate::serde::tags::{IpInterface, Zone};
+
+    let octets: [u8; 16] = bytes("fe8000000000020202fffffffe030303")
+        .try_into()
+        .unwrap();
+    let interface = IpInterface {
+        address: IpAddr::V6(Ipv6Addr::from(octets)),
+        prefix_length: Some(64),
+        zone: Some(Zone::Index(42)),
+    };
+    let encoded = to_vec(&interface).unwrap();
+    assert_eq!(
+        encoded,
+        bytes("d8 36 83 50 fe8000000000020202fffffffe030303 18 40 18 2a")
+    );
+    assert_eq!(from_slice::<IpInterface>(&encoded).unwrap(), interface);
+    let unnumbered = IpInterface {
+        address: IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)),
+        prefix_length: None,
+        zone: None,
+    };
+    assert_eq!(
+        to_vec(&unnumbered).unwrap(),
+        bytes("d8 34 82 44 c0000201 f6")
+    );
+    assert_eq!(
+        from_slice::<IpInterface>(&bytes("d8 34 82 44 c0000201 f6")).unwrap(),
+        unnumbered
+    );
+    assert_eq!(
+        from_slice::<IpInterface>(&bytes("d8 34 83 44 c0000201 18 18 64 65746830"))
+            .unwrap()
+            .zone,
+        Some(Zone::Name("eth0".into()))
+    );
+    assert!(from_slice::<IpInterface>(&bytes("d8 34 82 44 c0000201 18 21")).is_err());
+    assert!(from_slice::<IpInterface>(&bytes("d8 34 44 c0000201")).is_err());
+}
