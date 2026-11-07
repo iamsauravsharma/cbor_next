@@ -20,6 +20,12 @@ pub(super) const UNDEFINED_NAME: &str = "$cbor_next::private::Undefined";
 pub(super) const SIMPLE_NAME: &str = "$cbor_next::private::Simple";
 /// Struct name a [`DataItem`] is read as
 pub(super) const DATA_ITEM_NAME: &str = "$cbor_next::private::DataItem";
+/// Struct name around an indefinite length array or map
+pub(super) const INDEFINITE_NAME: &str = "$cbor_next::private::Indefinite";
+/// Struct name around the chunks of an indefinite length byte string
+pub(super) const BYTE_CHUNKS_NAME: &str = "$cbor_next::private::ByteChunks";
+/// Struct name around the chunks of an indefinite length text string
+pub(super) const TEXT_CHUNKS_NAME: &str = "$cbor_next::private::TextChunks";
 
 /// A tag around any value; elsewhere a `(number, content)` pair.
 ///

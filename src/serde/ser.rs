@@ -6,8 +6,10 @@ use indexmap::IndexMap;
 use indexmap::map::Entry;
 
 use super::error::{Error, unsupported};
-use super::wrapper::{SIMPLE_NAME, TAG_NAME, UNDEFINED_NAME};
-use crate::content::{Array, Map, Simple};
+use super::wrapper::{
+    BYTE_CHUNKS_NAME, INDEFINITE_NAME, SIMPLE_NAME, TAG_NAME, TEXT_CHUNKS_NAME, UNDEFINED_NAME,
+};
+use crate::content::{Array, ByteString, Map, Simple, TextString};
 use crate::data_item::DataItem;
 use crate::data_item::convert::f32_to_f64;
 
@@ -144,6 +146,16 @@ impl Serializer for ItemSerializer {
         T: Serialize + ?Sized,
     {
         let item = value.serialize(self)?;
+        if name == INDEFINITE_NAME {
+            return Ok(match item {
+                DataItem::Array(array) => DataItem::Array(array.with_indefinite(true)),
+                DataItem::Map(map) => DataItem::Map(map.with_indefinite(true)),
+                other => other,
+            });
+        }
+        if name == BYTE_CHUNKS_NAME || name == TEXT_CHUNKS_NAME {
+            return chunked(name == TEXT_CHUNKS_NAME, item);
+        }
         if name != SIMPLE_NAME {
             return Ok(item);
         }
@@ -231,6 +243,33 @@ impl Serializer for ItemSerializer {
 
     fn is_human_readable(&self) -> bool {
         false
+    }
+}
+
+/// An indefinite length string rebuilt from its list of chunks.
+fn chunked(text: bool, item: DataItem) -> Result<DataItem, Error> {
+    let refused = || Error::Message("string chunks are a list of strings of one type".into());
+    let DataItem::Array(chunks) = item else {
+        return Err(refused());
+    };
+    let chunks = chunks.into_items();
+    if text {
+        let chunks = chunks
+            .into_iter()
+            .map(|chunk| chunk.as_text().map(TextString::to_text).ok_or_else(refused))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(DataItem::Text(TextString::from_chunks(chunks)))
+    } else {
+        let chunks = chunks
+            .into_iter()
+            .map(|chunk| {
+                chunk
+                    .as_byte()
+                    .map(ByteString::to_bytes)
+                    .ok_or_else(refused)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(DataItem::Byte(ByteString::from_chunks(chunks)))
     }
 }
 

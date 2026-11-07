@@ -290,10 +290,28 @@ fn a_data_item_round_trips_through_itself() {
             (DataItem::Null, DataItem::from(vec![DataItem::tag(3, 0)])),
         ]),
         DataItem::decode(&bytes("fa 7f800001")).unwrap(),
+        // the length form and chunks, nested and empty too
+        DataItem::decode(&bytes("5f 4101 4102 ff")).unwrap(),
+        DataItem::decode(&bytes("7f 6161 6162 ff")).unwrap(),
+        DataItem::decode(&bytes("5f ff")).unwrap(),
+        DataItem::decode(&bytes("7f ff")).unwrap(),
+        DataItem::decode(&bytes("9f 01 9f ff 82 02 03 ff")).unwrap(),
+        DataItem::decode(&bytes("bf 61 61 bf 01 7f 6161 ff ff ff")).unwrap(),
+        DataItem::decode(&bytes("c1 9f 01 ff")).unwrap(),
     ];
     for item in items {
-        assert_eq!(to_data_item(&item).unwrap(), item, "{item}");
-        assert_eq!(from_data_item::<DataItem>(&item).unwrap(), item, "{item}");
+        // equality ignores the length form, so compare the bytes as well
+        let through = to_data_item(&item).unwrap();
+        assert_eq!(through.encode(), item.encode(), "{item}");
+        let back = from_data_item::<DataItem>(&item).unwrap();
+        assert_eq!(back.encode(), item.encode(), "{item}");
+        let bytes = to_vec(&item).unwrap();
+        assert_eq!(bytes, item.encode(), "{item}");
+        assert_eq!(
+            from_slice::<DataItem>(&bytes).unwrap().encode(),
+            bytes,
+            "{item}"
+        );
     }
 }
 
@@ -311,6 +329,11 @@ fn a_data_item_goes_through_other_formats() {
         "[1,1]"
     );
     assert_eq!(serde_json::to_string(&DataItem::Undefined).unwrap(), "null");
+    // an indefinite array or map looks like a definite one, chunks as a list
+    let indefinite = DataItem::decode(&bytes("9f 01 02 ff")).unwrap();
+    assert_eq!(serde_json::to_string(&indefinite).unwrap(), "[1,2]");
+    let chunks = DataItem::decode(&bytes("7f 6161 6162 ff")).unwrap();
+    assert_eq!(serde_json::to_string(&chunks).unwrap(), r#"["a","b"]"#);
     assert_eq!(
         serde_json::to_string(&DataItem::GenericSimple(Simple::try_from(16).unwrap())).unwrap(),
         "16"

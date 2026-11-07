@@ -32,8 +32,10 @@
 //! cannot hold fails with [`Error::Unsupported`] rather than being altered, as
 //! does a repeated map key.
 //!
-//! Indefinite lengths are read; output always uses definite lengths. Enums use
-//! serde's default (externally tagged) form.
+//! Rust values are read with indefinite lengths joined and written with
+//! definite ones; a [`DataItem`](crate::DataItem) keeps its length form and
+//! chunks, so it round trips byte for byte. Enums use serde's default
+//! (externally tagged) form.
 
 mod de;
 mod error;

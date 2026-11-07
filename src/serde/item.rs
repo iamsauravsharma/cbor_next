@@ -3,18 +3,22 @@ use std::fmt::Formatter;
 use ::serde::de::{
     self, Deserialize, Deserializer, EnumAccess, MapAccess, SeqAccess, VariantAccess as _, Visitor,
 };
-use ::serde::ser::{Serialize, SerializeMap as _, SerializeSeq as _, Serializer};
+use ::serde::ser::{Serialize, Serializer};
 use indexmap::IndexMap;
 use indexmap::map::Entry;
 
-use super::de::{SIMPLE_VARIANT, TAG_VARIANT, UNDEFINED_VARIANT};
-use super::wrapper::{DATA_ITEM_NAME, Tagged, Undefined};
-use crate::content::{Array, Map, Simple};
+use super::de::Special;
+use super::tags::{ByteBuf, Bytes};
+use super::wrapper::{
+    BYTE_CHUNKS_NAME, DATA_ITEM_NAME, INDEFINITE_NAME, TEXT_CHUNKS_NAME, Tagged, Undefined,
+};
+use crate::content::{Array, ByteString, Map, Simple, TextString};
 use crate::data_item::DataItem;
 use crate::data_item::convert::f32_to_f64;
 
 /// Writes the value held; tags, `undefined` and simple values go as
-/// [`Tagged`], [`Undefined`] and [`Simple`] do.
+/// [`Tagged`], [`Undefined`] and [`Simple`] do. This crate keeps the length
+/// form and chunks; elsewhere chunks are a list of strings.
 impl Serialize for DataItem {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -30,22 +34,23 @@ impl Serialize for DataItem {
                     serializer.serialize_i128(value)
                 }
             }
+            // the length form and chunks go under names this crate knows
+            Self::Byte(bytes) if bytes.is_indefinite() => {
+                serializer.serialize_newtype_struct(BYTE_CHUNKS_NAME, &ByteChunks(bytes.chunks()))
+            }
+            Self::Text(text) if text.is_indefinite() => {
+                serializer.serialize_newtype_struct(TEXT_CHUNKS_NAME, text.chunks())
+            }
+            Self::Array(array) if array.is_indefinite() => {
+                serializer.serialize_newtype_struct(INDEFINITE_NAME, array.items())
+            }
+            Self::Map(map) if map.is_indefinite() => {
+                serializer.serialize_newtype_struct(INDEFINITE_NAME, &Entries(map))
+            }
             Self::Byte(bytes) => serializer.serialize_bytes(&bytes.to_bytes()),
             Self::Text(text) => serializer.serialize_str(&text.to_text()),
-            Self::Array(array) => {
-                let mut sequence = serializer.serialize_seq(Some(array.items().len()))?;
-                for item in array.items() {
-                    sequence.serialize_element(item)?;
-                }
-                sequence.end()
-            }
-            Self::Map(map) => {
-                let mut entries = serializer.serialize_map(Some(map.entries().len()))?;
-                for (key, value) in map.entries() {
-                    entries.serialize_entry(key, value)?;
-                }
-                entries.end()
-            }
+            Self::Array(array) => array.items().serialize(serializer),
+            Self::Map(map) => Entries(map).serialize(serializer),
             Self::Tag(tag) => tag.serialize(serializer),
             Self::Boolean(value) => serializer.serialize_bool(*value),
             Self::Null => serializer.serialize_unit(),
@@ -53,6 +58,63 @@ impl Serialize for DataItem {
             Self::Floating(number) => serializer.serialize_f64(*number),
             Self::GenericSimple(simple) => simple.serialize(serializer),
         }
+    }
+}
+
+/// A map's entries, written as a map.
+struct Entries<'a>(&'a Map);
+
+impl Serialize for Entries<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.collect_map(self.0.entries())
+    }
+}
+
+/// Byte string chunks, written as a list of byte strings.
+struct ByteChunks<'a>(&'a [Vec<u8>]);
+
+impl Serialize for ByteChunks<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.collect_seq(self.0.iter().map(|chunk| Bytes(chunk)))
+    }
+}
+
+/// A map's entries, read as pairs.
+struct Pairs(Vec<(DataItem, DataItem)>);
+
+impl<'de> Deserialize<'de> for Pairs {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct PairsVisitor;
+
+        impl<'de> Visitor<'de> for PairsVisitor {
+            type Value = Pairs;
+
+            fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a map")
+            }
+
+            fn visit_map<A>(self, mut access: A) -> Result<Pairs, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let mut pairs = Vec::with_capacity(access.size_hint().unwrap_or(0).min(1024));
+                while let Some(pair) = access.next_entry()? {
+                    pairs.push(pair);
+                }
+                Ok(Pairs(pairs))
+            }
+        }
+
+        deserializer.deserialize_map(PairsVisitor)
     }
 }
 
@@ -183,22 +245,45 @@ impl<'de> Visitor<'de> for ItemVisitor {
         A: EnumAccess<'de>,
     {
         let (index, variant) = access.variant::<u32>()?;
-        match index {
-            TAG_VARIANT => {
+        let special = Special::from_index(index)
+            .ok_or_else(|| de::Error::custom("a data item is not an enum"))?;
+        match special {
+            Special::Tag => {
                 let tagged = variant.newtype_variant::<Tagged<DataItem>>()?;
                 Ok(DataItem::tag(tagged.number, tagged.content))
             }
-            UNDEFINED_VARIANT => {
+            Special::Undefined => {
                 variant.unit_variant()?;
                 Ok(DataItem::Undefined)
             }
-            SIMPLE_VARIANT => {
+            Special::Simple => {
                 let simple = variant.newtype_variant::<u8>()?;
                 Simple::try_from(simple)
                     .map(DataItem::GenericSimple)
                     .map_err(de::Error::custom)
             }
-            _ => Err(de::Error::custom("a data item is not an enum")),
+            Special::IndefiniteArray => {
+                let items = variant.newtype_variant::<Vec<DataItem>>()?;
+                Ok(DataItem::Array(
+                    Array::from_items(items).with_indefinite(true),
+                ))
+            }
+            Special::IndefiniteMap => {
+                let Pairs(pairs) = variant.newtype_variant()?;
+                Ok(DataItem::Map(
+                    Map::from_entries(pairs).with_indefinite(true),
+                ))
+            }
+            Special::ByteChunks => {
+                let chunks = variant.newtype_variant::<Vec<ByteBuf>>()?;
+                Ok(DataItem::Byte(ByteString::from_chunks(
+                    chunks.into_iter().map(|chunk| chunk.0),
+                )))
+            }
+            Special::TextChunks => {
+                let chunks = variant.newtype_variant::<Vec<String>>()?;
+                Ok(DataItem::Text(TextString::from_chunks(chunks)))
+            }
         }
     }
 }

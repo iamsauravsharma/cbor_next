@@ -244,7 +244,7 @@ where
 }
 
 /// Bytes serialized as a byte string, not a sequence of numbers.
-struct Bytes<'a>(&'a [u8]);
+pub(super) struct Bytes<'a>(pub(super) &'a [u8]);
 
 impl Serialize for Bytes<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -256,7 +256,7 @@ impl Serialize for Bytes<'_> {
 }
 
 /// Bytes read from a byte string or a sequence of numbers.
-struct ByteBuf(Vec<u8>);
+pub(super) struct ByteBuf(pub(super) Vec<u8>);
 
 impl<'de> Deserialize<'de> for ByteBuf {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>

@@ -1,5 +1,7 @@
 use ::serde::Deserializer as _;
-use ::serde::de::value::{U8Deserializer, U32Deserializer, U64Deserializer};
+use ::serde::de::value::{
+    SeqDeserializer as ValueSeqDeserializer, U8Deserializer, U32Deserializer, U64Deserializer,
+};
 use ::serde::de::{
     self, Deserialize, DeserializeOwned, DeserializeSeed, EnumAccess, MapAccess, SeqAccess,
     VariantAccess, Visitor,
@@ -55,12 +57,57 @@ where
     from_data_item(&DataItem::decode(bytes)?)
 }
 
-/// Variant index for a tag read into a [`DataItem`]
-pub(super) const TAG_VARIANT: u32 = 0;
-/// Variant index for `undefined` read into a [`DataItem`]
-pub(super) const UNDEFINED_VARIANT: u32 = 1;
-/// Variant index for a simple value read into a [`DataItem`]
-pub(super) const SIMPLE_VARIANT: u32 = 2;
+/// A `CBOR` item serde has no plain form for. This crate's deserializer hands
+/// it to a [`DataItem`] as the enum variant with this number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub(super) enum Special {
+    /// A tag, content `(number, content)`
+    Tag = 0,
+    /// `undefined`, no content
+    Undefined = 1,
+    /// A simple value, content its number
+    Simple = 2,
+    /// An indefinite length array, content its items
+    IndefiniteArray = 3,
+    /// An indefinite length map, content its entries
+    IndefiniteMap = 4,
+    /// An indefinite length byte string, content its chunks
+    ByteChunks = 5,
+    /// An indefinite length text string, content its chunks
+    TextChunks = 6,
+}
+
+impl Special {
+    /// The kind of an item, or `None` for one with a plain form.
+    fn of(item: &DataItem) -> Option<Self> {
+        Some(match item {
+            DataItem::Tag(_) => Self::Tag,
+            DataItem::Undefined => Self::Undefined,
+            DataItem::GenericSimple(_) => Self::Simple,
+            DataItem::Array(array) if array.is_indefinite() => Self::IndefiniteArray,
+            DataItem::Map(map) if map.is_indefinite() => Self::IndefiniteMap,
+            DataItem::Byte(bytes) if bytes.is_indefinite() => Self::ByteChunks,
+            DataItem::Text(text) if text.is_indefinite() => Self::TextChunks,
+            _ => return None,
+        })
+    }
+
+    /// The kind with this variant number; each arm reads the number off the
+    /// variant, so the two cannot disagree.
+    pub(super) fn from_index(index: u32) -> Option<Self> {
+        Some(match index {
+            n if n == Self::Tag as u32 => Self::Tag,
+            n if n == Self::Undefined as u32 => Self::Undefined,
+            n if n == Self::Simple as u32 => Self::Simple,
+            n if n == Self::IndefiniteArray as u32 => Self::IndefiniteArray,
+            n if n == Self::IndefiniteMap as u32 => Self::IndefiniteMap,
+            n if n == Self::ByteChunks as u32 => Self::ByteChunks,
+            n if n == Self::TextChunks as u32 => Self::TextChunks,
+            _ => return None,
+        })
+    }
+}
 
 /// The magnitude a bignum holds, RFC 8949 section 3.4.3.
 fn bignum_magnitude(number: u64, content: &DataItem) -> Result<u128, Error> {
@@ -217,10 +264,13 @@ impl<'de> de::Deserializer<'de> for &'de DataItem {
                 )))
             }
             // items serde lacks go as a variant the DataItem visitor unwraps
-            DataItem::Tag(_) | DataItem::Undefined | DataItem::GenericSimple(_)
-                if name == DATA_ITEM_NAME =>
+            item if name == DATA_ITEM_NAME
+                && let Some(special) = Special::of(item) =>
             {
-                visitor.visit_enum(SpecialAccess { item: self })
+                visitor.visit_enum(SpecialAccess {
+                    item: self,
+                    special,
+                })
             }
             _ if name == DATA_ITEM_NAME => self.deserialize_any(visitor),
             _ => visitor.visit_newtype_struct(self),
@@ -383,6 +433,7 @@ impl<'de> SeqAccess<'de> for TagAccess<'de> {
 /// [`DataItem`] visitor.
 struct SpecialAccess<'de> {
     item: &'de DataItem,
+    special: Special,
 }
 
 impl<'de> EnumAccess<'de> for SpecialAccess<'de> {
@@ -393,11 +444,7 @@ impl<'de> EnumAccess<'de> for SpecialAccess<'de> {
     where
         V: DeserializeSeed<'de>,
     {
-        let index = match self.item {
-            DataItem::Tag(_) => TAG_VARIANT,
-            DataItem::Undefined => UNDEFINED_VARIANT,
-            _ => SIMPLE_VARIANT,
-        };
+        let index = self.special as u32;
         let variant = seed.deserialize(U32Deserializer::<Error>::new(index))?;
         Ok((variant, self))
     }
@@ -407,9 +454,10 @@ impl<'de> VariantAccess<'de> for SpecialAccess<'de> {
     type Error = Error;
 
     fn unit_variant(self) -> Result<(), Error> {
-        match self.item {
-            DataItem::Undefined => Ok(()),
-            _ => Err(de::Error::custom("only undefined is a unit")),
+        if self.special == Special::Undefined {
+            Ok(())
+        } else {
+            Err(de::Error::custom("only undefined is a unit"))
         }
     }
 
@@ -418,9 +466,20 @@ impl<'de> VariantAccess<'de> for SpecialAccess<'de> {
         T: DeserializeSeed<'de>,
     {
         match self.item {
-            DataItem::Tag(_) => seed.deserialize(self.item),
+            // read as a plain array or map, so not as a variant again
+            DataItem::Tag(_) | DataItem::Array(_) | DataItem::Map(_) => seed.deserialize(self.item),
             DataItem::GenericSimple(simple) => {
                 seed.deserialize(U8Deserializer::<Error>::new(simple.value()))
+            }
+            DataItem::Byte(bytes) => {
+                seed.deserialize(ValueSeqDeserializer::new(
+                    bytes.chunks().iter().map(Vec::as_slice),
+                ))
+            }
+            DataItem::Text(text) => {
+                seed.deserialize(ValueSeqDeserializer::new(
+                    text.chunks().iter().map(String::as_str),
+                ))
             }
             _ => Err(de::Error::custom("undefined has no content")),
         }
